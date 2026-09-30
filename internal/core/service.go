@@ -34,7 +34,7 @@ func New(source ports.Source, png ports.ScreenshotWriter, video ports.VideoWrite
 // A timed recording (Duration > 0) encodes exactly ceil(Duration*FPS) frames,
 // so its encoded length is Duration rounded up to a frame. Wall time may run
 // longer when Capture or Write is slow: missed slots repeat the current frame
-// (at most two per fresh Capture) and the schedule then moves
+// (at most two repeats per fresh Capture) and the schedule then moves
 // forward, so a slow encoder lengthens the run instead of starving Capture.
 // The clock starts after Start and the first Write succeed.
 //
@@ -104,8 +104,9 @@ func (s *Service) abort(err error) error {
 }
 
 // maxRepeatSlots bounds how many missed slots repeat the current frame before
-// the next fresh Capture. A larger lag moves the schedule forward instead, so
-// encoder backpressure becomes wall-time overrun rather than a stale-frame spiral.
+// the next fresh Capture (so at most three identical consecutive writes). A
+// larger lag moves the schedule forward instead, so encoder backpressure
+// becomes wall-time overrun rather than a stale-frame spiral.
 const maxRepeatSlots = 2
 
 // schedule maps elapsed time since the first frame to fixed-rate frame slots.
@@ -152,11 +153,21 @@ func (sc *schedule) catchUp(next int64) int64 {
 	return cur
 }
 
+// writeTimed writes frame and returns how long the encoder took.
+func (s *Service) writeTimed(ctx context.Context, frame ports.Frame) (time.Duration, error) {
+	began := time.Now()
+	err := s.video.Write(ctx, frame)
+	return time.Since(began), err
+}
+
 // recordLoop fills slots 1.. after the already written first frame. A slot
-// missed because Capture or Write ran long reuses the current frame, which is
-// still valid until the next Capture, so the encoded duration stays exact
-// even when wall time overruns. At most maxRepeatSlots slots repeat per fresh
-// Capture; see catchUp. A timed recording ends after ceil(duration*fps)
+// missed because Capture ran long reuses the current frame, which is still
+// valid until the next Capture, so the encoded duration stays exact even when
+// wall time overruns. Encoder time does not cause repeats: the full duration
+// of a repeated Write, and the part of a fresh Write beyond one frame
+// interval, is added to the schedule start, so only Capture delay is
+// duplicated. catchUp is a backstop that keeps at most maxRepeatSlots repeats
+// per fresh Capture. A timed recording ends after ceil(duration*fps)
 // frames, so a duration shorter than one frame interval encodes one frame and
 // returns without waiting. Cancellation ends the recording at the last frame
 // already written: nothing is written afterwards, because the writer is
@@ -197,9 +208,11 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 			if ctx.Err() != nil {
 				return nil
 			}
-			if err := s.video.Write(ctx, frame); err != nil {
+			took, err := s.writeTimed(ctx, frame)
+			if err != nil {
 				return writeResult(ctx, err)
 			}
+			sc.start = sc.start.Add(took) // repeated encoder time is not lag
 		}
 		if past {
 			return nil
@@ -218,9 +231,12 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err := s.video.Write(ctx, frame); err != nil {
+		took, err := s.writeTimed(ctx, frame)
+		if err != nil {
 			return writeResult(ctx, err)
 		}
+		// Only the part of a fresh Write beyond its own slot is delay.
+		sc.start = sc.start.Add(max(0, took-sc.due(1)))
 		next++
 	}
 	return nil

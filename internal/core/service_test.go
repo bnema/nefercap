@@ -448,6 +448,45 @@ func TestRecordEncoderBackpressureKeepsCapturesFresh(t *testing.T) {
 	assert.LessOrEqual(t, bp.maxRun, 2, "repeat backlog is bounded")
 }
 
+func TestRecordSlightWriteOverrunStaysFresh(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(time.Second)
+	sel.Video.FPS = 60
+	start := recordOrder(h, sel)
+	var bp backpressure
+	bp.wire(h, start, 17*time.Millisecond) // just over the 16.7ms slot
+	h.vid.EXPECT().Close().Return(nil).Once()
+
+	require.NoError(t, h.svc.Run(context.Background(), sel))
+	assert.Equal(t, int32(60), bp.writes.Load(), "exact encoded length")
+	assert.GreaterOrEqual(t, bp.captures.Load(), int32(54), "over 90 percent of frames are fresh")
+}
+
+func TestRecordSlowCaptureStillRepeats(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(time.Second)
+	sel.Video.FPS = 60
+	start := recordOrder(h, sel)
+	var captures atomic.Int32
+	h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
+		captures.Add(1)
+		time.Sleep(25 * time.Millisecond)
+		return newFrame(), nil
+	}).Maybe()
+	var writes atomic.Int32
+	h.vid.EXPECT().Write(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, _ ports.Frame) error {
+		time.Sleep(time.Millisecond)
+		writes.Add(1)
+		return nil
+	}).NotBefore(start).Maybe()
+	h.vid.EXPECT().Close().Return(nil).Once()
+
+	require.NoError(t, h.svc.Run(context.Background(), sel))
+	assert.Equal(t, int32(60), writes.Load(), "exact encoded length")
+	assert.Less(t, captures.Load(), int32(45), "slow captures are covered by repeated frames")
+	assert.Greater(t, captures.Load(), int32(10))
+}
+
 func TestRecordUntimedBackpressureBoundsRepeats(t *testing.T) {
 	h := newHarness(t)
 	sel := rec(0)
