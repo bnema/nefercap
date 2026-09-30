@@ -65,7 +65,8 @@ type failure struct {
 }
 
 // Writer implements ports.VideoWriter. Start, Write and Close have one owner;
-// Abort may be called concurrently with Write. A Writer is single-use.
+// Abort may be called concurrently with Write or a draining Close.
+// A Writer is single-use.
 type Writer struct {
 	binary       string
 	closeTimeout time.Duration
@@ -374,9 +375,9 @@ func writeFull(dst io.Writer, p []byte) error {
 // kills it) and reports the outcome. The video is kept when the encoder exits
 // cleanly after at least one frame, including after a cancelled context; it is
 // removed otherwise. Close and Abort are terminal and the first one wins:
-// later Close calls return the first Close result, and Close after an Abort
-// returns nil because nothing was kept. Close is only concurrent with Abort
-// (besides Write) as described on Abort.
+// later Close calls return the first Close result. Close after an Abort returns
+// its cleanup result (nil unless reaping or removal failed); nothing was kept.
+// Close may run concurrently with Abort as described on Abort, but not Write.
 func (w *Writer) Close() error { return w.terminate(false) }
 
 // Abort discards the recording. When it is the first terminal operation it

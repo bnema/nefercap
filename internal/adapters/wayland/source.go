@@ -109,8 +109,6 @@ func New(ctx context.Context, socket string) (*Source, error) {
 		s.terminate()
 		if cancelled || ctx.Err() != nil {
 			err = ctx.Err()
-		} else {
-			err = fmt.Errorf("wayland: discover: %w", err)
 		}
 		s.log.Error().Err(err).Msg("wayland source failed to start")
 		return nil, err
@@ -276,6 +274,12 @@ func (s *Source) detachWatcher() {
 // finish ends the call started by begin and classifies err. A cancellation
 // observed at any point makes the Source terminal. When it is terminal, the
 // mapped storage is released before returning.
+//
+// Ordering invariant: a context sets Err before it closes Done and runs
+// AfterFunc callbacks. So a callback that ran while the call was active has
+// already made Err visible, and a callback that ran while idle did nothing but
+// is caught by the Err check. Clearing active before that check therefore
+// cannot report success for a call whose context was cancelled in between.
 func (s *Source) finish(ctx context.Context, err error) error {
 	s.watchActive.Store(false)
 	if cerr := ctx.Err(); cerr != nil {

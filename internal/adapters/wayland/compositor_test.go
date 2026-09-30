@@ -370,6 +370,10 @@ func (c *compositor) capture(o *objects, op uint16, body []byte) {
 	spec := c.cfg.outputs[out]
 	w, h := spec.width, spec.height
 	c.mu.Lock()
+	// cfg fields may be changed by tests between captures: read them under mu.
+	removeOnCapture, failCapture := c.cfg.removeOnCapture, c.cfg.failCapture
+	readyEarly, noShmOffer := c.cfg.readyEarly, c.cfg.noShmOffer
+	list, version := c.cfg.announce, c.cfg.screencopyVersion
 	c.captures++
 	if op == 1 {
 		c.lastRegion = [4]int32{int32(word(body, 3)), int32(word(body, 4)), int32(word(body, 5)), int32(word(body, 6))}
@@ -379,21 +383,20 @@ func (c *compositor) capture(o *objects, op uint16, body []byte) {
 	c.mu.Unlock()
 	o.kinds[frame] = kindFrame
 	o.frames[frame] = &frameState{output: out, w: w, h: h}
-	if c.cfg.removeOnCapture {
+	if removeOnCapture {
 		c.removeOutput(uint32(out + 1))
 		c.send(frame, 3)
 		return
 	}
-	if c.cfg.failCapture {
+	if failCapture {
 		c.send(frame, 3)
 		return
 	}
-	if c.cfg.readyEarly {
+	if readyEarly {
 		c.send(frame, 2, 0, 1, 500)
 		return
 	}
-	list := c.cfg.announce
-	if c.cfg.noShmOffer {
+	if noShmOffer {
 		c.send(frame, 6)
 		return
 	}
@@ -403,7 +406,7 @@ func (c *compositor) capture(o *objects, op uint16, body []byte) {
 	for _, a := range list {
 		c.send(frame, 0, a.format, a.width, a.height, a.stride)
 	}
-	if c.cfg.screencopyVersion >= 3 {
+	if version >= 3 {
 		c.send(frame, 6)
 	}
 }

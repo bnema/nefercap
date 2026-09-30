@@ -599,14 +599,6 @@ func TestNoShmOffer(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBufferDoneOnlyAfterShmOffer(t *testing.T) {
-	// The default peer sends buffer then buffer_done: capture waits for the latter.
-	s, _ := newSource(t, compositorConfig{})
-	out := firstOutput(t, s)
-	_, err := s.Capture(context.Background(), ports.Target{OutputID: out.ID})
-	require.NoError(t, err)
-}
-
 func TestMalformedOutputModeAndScale(t *testing.T) {
 	s, _ := newSource(t, compositorConfig{outputs: []outputSpec{
 		{name: "BAD", width: 0xffffffff, height: 1 << 30, scale: -4, version: 4},

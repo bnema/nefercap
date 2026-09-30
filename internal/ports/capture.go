@@ -68,7 +68,11 @@ type VideoSettings struct {
 // silently crop when zero output dimensions request source resolution.
 // Write consumes borrowed pixels before returning; it must not queue frames.
 // Close drains and finalizes the encoder with a bounded shutdown deadline.
-// Abort interrupts pending writes and is safe concurrently with Write.
+// Abort as the first terminal operation interrupts writes and discards output.
+// Abort is safe concurrently with Write or a draining Close. During Close it
+// escalates shutdown unless Close already observed encoder exit; Close's result
+// is authoritative. Abort after completed Close is a no-op. Close after Abort
+// returns Abort's cleanup result. Close preserves frames on a clean exit.
 // Cancellation errors wrap ctx.Err(); unrelated failures must be preserved.
 // Write rejects width, height or format changes with ErrGeometryChanged.
 // Stride changes are allowed. Close and Abort are idempotent terminal operations;

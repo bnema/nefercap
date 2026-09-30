@@ -43,10 +43,10 @@ fakes-check:
 arch:
 	$(HEXCHECK) -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
 # Steady-state allocation guards. PERF_TESTS lists exact test names and PERF_PKGS
-# the packages holding them; extend both as encoder/wayland tests appear. Every
-# named test must exist, so the guard cannot pass vacuously.
-PERF_TESTS := TestFrameAllocations
-PERF_PKGS := ./internal/ports
+# the packages holding them. Every named test must exist, so the guard cannot
+# pass vacuously when a frame-path test is removed or renamed.
+PERF_TESTS := TestFrameAllocations TestSelectionAllocations TestFormAllocations TestVideoRowsAllocations TestWriteSteadyStateAllocations TestResolveOutputAllocations TestCaptureAllocations
+PERF_PKGS := ./internal/ports ./internal/core ./internal/adapters/gui ./internal/adapters/ffmpeg ./internal/app ./internal/adapters/wayland
 perf_empty :=
 perf_space := $(perf_empty) $(perf_empty)
 PERF_RE := ^($(subst $(perf_space),|,$(strip $(PERF_TESTS))))$$
