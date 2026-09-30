@@ -29,7 +29,7 @@ func TestTabTogglesModeKeepingTarget(t *testing.T) {
 	assert.Equal(t, ports.Record, m.mode)
 	assert.Equal(t, core.PickMonitor, m.picker.Kind(), "target is kept")
 	assert.Equal(t, "rec · Tab shot · R region · M monitor · G grid · Esc cancel\nEnter record monitor · click record monitor", m.footerText)
-	assert.Equal(t, "● REC", badgeText(m.mode))
+	assert.Equal(t, "REC", badgeText(m.mode))
 	m.input(key("Tab"))
 	assert.Equal(t, ports.Screenshot, m.mode)
 	assert.Contains(t, m.footerText, "Enter capture monitor")
@@ -70,8 +70,8 @@ func TestTabSharedAcrossOverlaysAndResult(t *testing.T) {
 
 func TestBadgeClassAndText(t *testing.T) {
 	assert.Equal(t, "SHOT", badgeText(ports.Screenshot))
-	assert.Equal(t, "● REC", badgeText(ports.Record))
-	assert.Contains(t, styleSheet, "box.rec { background-color: #e5484d;")
+	assert.Equal(t, "REC", badgeText(ports.Record))
+	assert.NotContains(t, styleSheet, "box.rec", "the rec badge keeps the neutral tag style")
 }
 
 func TestBadgeTopLeftAndClearOfHeaderAndLabel(t *testing.T) {

@@ -15,7 +15,7 @@ make bin
 ./bin/nefercap status
 ```
 
-`nefercap` without a command is all-in-one: it stops an active recording, otherwise opens the selector in shot mode. **Tab** switches shot ⇄ rec and keeps the chosen region, monitor or workspace; Enter or a click confirms in the current mode. It takes no flags except `-debug` and reads its settings from the config file. `shot` and `rec` keep a fixed mode (no Tab) and accept `-file`/`-clipboard` (shot) to override the config per run. A badge at the top left of every overlay always shows the mode: `SHOT`, or a red `● REC`.
+`nefercap` without a command is all-in-one: it stops an active recording, otherwise opens the selector in shot mode. **Tab** switches shot ⇄ rec and keeps the chosen region, monitor or workspace; Enter or a click confirms in the current mode. It takes no flags except `-debug` and reads its settings from the config file. `shot` and `rec` keep a fixed mode (no Tab) and accept `-file`/`-clipboard` (shot) to override the config per run. A neutral badge at the top left of every overlay always shows the mode: `SHOT` or `REC`.
 
 The selector covers the connected outputs, up to nine:
 

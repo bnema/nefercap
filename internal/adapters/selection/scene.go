@@ -61,10 +61,11 @@ func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle bool) str
 	return b.String()
 }
 
-// badgeText is the always-visible mode badge; recBadge is styled red.
+// badgeText is the always-visible mode badge. Both modes share the neutral
+// tag style: a red badge would read as an active recording.
 func badgeText(mode ports.Mode) string {
 	if mode == ports.Record {
-		return "● REC"
+		return "REC"
 	}
 	return "SHOT"
 }
