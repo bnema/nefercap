@@ -57,10 +57,10 @@ func TestLoadGrid(t *testing.T) {
 func TestLoadRejectsInvalid(t *testing.T) {
 	for _, tc := range []struct{ text, want string }{
 		{"selector.grid = maybe", "line 1: selector.grid must be on or off"},
-		{"selector.grid", "line 1: expected one"},
+		{"selector.grid", "line 1: expected each of"},
 		{"selector.grid =", "line 1: selector.grid must be on or off"},
-		{"selector.other = on", "line 1: expected one"},
-		{"selector.grid = on\nselector.grid = off", "line 2: expected one"},
+		{"selector.other = on", "line 1: expected each of"},
+		{"selector.grid = on\nselector.grid = off", "line 2: expected each of"},
 		{strings.Repeat("#", maxBytes+1), "exceeds 4096 bytes"},
 	} {
 		t.Run(tc.text[:min(len(tc.text), 40)], func(t *testing.T) {
@@ -122,4 +122,52 @@ func TestLoadDirectoryRejected(t *testing.T) {
 	require.NoError(t, os.MkdirAll(path, 0o700))
 	_, err := Load()
 	require.ErrorContains(t, err, "expected a regular file")
+}
+
+func TestLoadPathsAndOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := configRoot(t)
+	saveConfig(t, path, "# c\nscreenshot.dir = ~/Pics/Shots\nvideo.dir=/var/tmp/vids/\nscreenshot.output = file+clipboard\nselector.grid = off\n")
+	got, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, Settings{Grid: false, ScreenshotDir: filepath.Join(home, "Pics", "Shots"), VideoDir: "/var/tmp/vids", Output: OutputFileClipboard}, got)
+
+	saveConfig(t, path, "screenshot.dir = ~\nscreenshot.output = clipboard\n")
+	got, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, home, got.ScreenshotDir)
+	assert.Equal(t, OutputClipboard, got.Output)
+	assert.Empty(t, got.VideoDir)
+}
+
+func TestLoadDefaultsOutputFile(t *testing.T) {
+	configRoot(t)
+	got, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, Settings{Grid: true, Output: OutputFile}, got)
+}
+
+func TestLoadRejectsInvalidNewKeys(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"screenshot.dir = Pictures", "line 1: screenshot.dir must be an absolute path or start with ~/"},
+		{"video.dir = ./v", "line 1: video.dir must be an absolute path"},
+		{"video.dir = ~user/v", "line 1: video.dir must be an absolute path"},
+		{"video.dir =", "line 1: video.dir must be a non-empty path"},
+		{"screenshot.output = both", "line 1: screenshot.output must be file, file+clipboard or clipboard"},
+		{"screenshot.output = File", "screenshot.output must be"},
+		{"screenshot.dir = /a\nscreenshot.dir = /b", "line 2: expected each of"},
+		{"screenshot.output = file\n\nscreenshot.output = file", "line 3: expected each of"},
+		{"video.dir = /a\nvideo.dir = /a", "line 2: expected each of"},
+		{"video.output = file", "line 1: expected each of"},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := configRoot(t)
+			saveConfig(t, path, tc.text)
+			_, err := Load()
+			require.ErrorContains(t, err, tc.want)
+			assert.Contains(t, err.Error(), path)
+		})
+	}
 }

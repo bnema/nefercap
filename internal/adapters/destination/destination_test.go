@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -193,4 +194,19 @@ func TestNamesDoNotCollide(t *testing.T) {
 		seen[p] = true
 	}
 	assert.Len(t, seen, 200)
+}
+
+func TestInExplicitDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "a", "b")
+	shot, err := ScreenshotIn(root)
+	require.NoError(t, err)
+	assert.Equal(t, root, filepath.Dir(shot))
+	assert.True(t, strings.HasSuffix(shot, ".png"))
+	fi, err := os.Stat(root)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), fi.Mode().Perm())
+	vid, err := VideoIn(root)
+	require.NoError(t, err)
+	assert.Equal(t, root, filepath.Dir(vid))
+	assert.True(t, strings.HasSuffix(vid, ".mp4"))
 }

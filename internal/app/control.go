@@ -11,10 +11,11 @@ import (
 )
 
 // controlCommand resolves commands that must work without opening a GUI or
-// connecting to Wayland. A rec invocation is a stop toggle when already active.
+// connecting to Wayland. A rec or all-in-one invocation is a stop toggle when
+// already active.
 func controlCommand(ctx context.Context, command cli.Command, output io.Writer) (handled bool, err error) {
 	switch command {
-	case cli.Rec, cli.Stop:
+	case cli.Rec, cli.AllInOne, cli.Stop:
 		stopped, err := control.Stop(ctx)
 		if err != nil {
 			return true, err

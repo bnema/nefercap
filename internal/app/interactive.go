@@ -17,7 +17,7 @@ import (
 
 // chooseInteractive uses native workspace metadata only when the compositor
 // exposes it. Monitor and region screenshots still work with standard capture.
-func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []ports.Output, options cli.Options) (ports.Selection, bool, error) {
+func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []ports.Output, options cli.Options, settings config.Settings) (ports.Selection, bool, error) {
 	mode := ports.Screenshot
 	if options.Command == cli.Rec {
 		mode = ports.Record
@@ -36,28 +36,41 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 		}
 		return ports.Selection{}, false, fmt.Errorf("list workspace capture targets: %w", err)
 	}
-	settings, err := config.Load()
-	if err != nil {
-		return ports.Selection{}, false, fmt.Errorf("load selector config: %w", err)
+	selector := selection.New(mode, options.Video, workspaces, settings.Grid)
+	if options.Command == cli.AllInOne {
+		selector.AllowToggle()
 	}
-	sel, accepted, err := selection.New(mode, options.Video, workspaces, settings.Grid).Select(ctx, outputs)
+	sel, accepted, err := selector.Select(ctx, outputs)
 	if err != nil || !accepted {
 		return ports.Selection{}, false, err
 	}
 	sel.Duration = options.Duration
-	sel.Path = options.Path
-	sel.Clipboard = options.Clipboard
-	if sel.Path == "" && !sel.Clipboard {
-		if mode == ports.Record {
-			sel.Path, err = destination.Video()
-		} else {
-			sel.Path, err = destination.Screenshot()
-		}
-		if err != nil {
-			return ports.Selection{}, false, err
-		}
+	if err := assignDestination(&sel, options, settings); err != nil {
+		return ports.Selection{}, false, err
 	}
 	return sel, true, nil
+}
+
+// assignDestination resolves where an interactive capture goes. Flags win over
+// the config: -file alone is a file only, -clipboard alone is clipboard only,
+// both save and copy. Without flags a screenshot follows screenshot.output.
+// Recordings always write a file; only screenshots are copied.
+func assignDestination(sel *ports.Selection, options cli.Options, settings config.Settings) (err error) {
+	if sel.Mode == ports.Record {
+		if sel.Path = options.Path; sel.Path == "" {
+			sel.Path, err = destination.VideoIn(settings.VideoDir)
+		}
+		return err
+	}
+	if options.Path != "" || options.Clipboard {
+		sel.Path, sel.Clipboard = options.Path, options.Clipboard
+		return nil
+	}
+	sel.Clipboard = settings.Output != config.OutputFile
+	if settings.Output != config.OutputClipboard {
+		sel.Path, err = destination.ScreenshotIn(settings.ScreenshotDir)
+	}
+	return err
 }
 
 func rejectCompetingSelector(ctx context.Context) error {

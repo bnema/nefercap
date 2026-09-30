@@ -18,9 +18,13 @@ import (
 type Command string
 
 const (
+	// AllInOne is the command-less invocation: it stops an active recording,
+	// otherwise opens the selector where Tab switches between shot and rec.
+	// It is never named on the command line and takes no capture flags.
+	AllInOne Command = "all-in-one"
 	// Shot and Rec pick a target with the layer-shell selector; Rec toggles:
-	// while a recording is active it stops that recording instead. Shot is
-	// the default command.
+	// while a recording is active it stops that recording instead. Their mode
+	// is fixed: no Tab toggle.
 	Shot   Command = "shot"
 	Rec    Command = "rec"
 	Stop   Command = "stop"
@@ -40,7 +44,7 @@ var ErrUsage = errors.New("usage error")
 
 // Options is the parsed command line. Video is set only for Record and Rec.
 // Path is optional for Shot and Rec, where an empty Path lets the caller
-// choose one.
+// choose one. Clipboard with an empty Path means clipboard only.
 type Options struct {
 	Command   Command
 	Output    string // output name; empty lets the caller choose
@@ -56,8 +60,12 @@ type Options struct {
 func Usage() string {
 	return fmt.Sprintf(`Usage: nefercap [command] [flags]
 
+  (no command) all-in-one: stop an active recording, else open the selector
+               in shot mode; Tab switches shot <-> rec. Takes no flags but
+               -debug; settings come from the config file.
+
 Interactive commands (layer-shell selector over the connected outputs):
-  shot        select what to capture and save a PNG (default)
+  shot        select what to capture and save a PNG; fixed mode
   rec         select what to record; run again while recording to stop it
   stop        stop the active recording
   status      print the recording state
@@ -70,10 +78,14 @@ Selector keys and mouse:
   w           choose the current workspace when known, click or Enter confirms
   1..9        pick that whole monitor from any overlay
   g           toggle full-monitor center and thirds guides (on by default)
+  Tab         switch shot <-> rec (all-in-one only)
   Escape      cancel
 
-Selector config: $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config)
-  selector.grid = off   hide guides on startup; G still toggles them
+Config: $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config)
+  selector.grid = off                 hide guides on startup; G still toggles them
+  screenshot.dir = ~/Pictures/Shots   absolute or ~/ path; default XDG Pictures/Screenshots
+  screenshot.output = file+clipboard  file (default), file+clipboard or clipboard
+  video.dir = ~/Videos                absolute or ~/ path; default XDG Videos
 
 Script commands (never open the selector):
   outputs     list outputs
@@ -82,6 +94,7 @@ Script commands (never open the selector):
 
 Flags:
   -clipboard        copy PNG with wl-copy; no file unless -file is given (shot, screenshot)
+                    shot and rec flags override the config for that run
   -debug            enable debug logging (all commands)
   -output NAME      output name (all except stop, status, outputs)
   -file PATH        new file to write; optional for shot, rec; screenshot requires it unless -clipboard; record requires it
@@ -98,7 +111,7 @@ func Parse(args []string, out io.Writer) (Options, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	opts := Options{Command: Shot}
+	opts := Options{Command: AllInOne}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		switch cmd := Command(args[0]); cmd {
 		case Shot, Rec, Stop, Status, Outputs, Screenshot, Record:
@@ -138,6 +151,9 @@ func Parse(args []string, out io.Writer) (Options, error) {
 		if errors.Is(err, flag.ErrHelp) {
 			_, _ = io.WriteString(out, Usage())
 			return Options{}, flag.ErrHelp
+		}
+		if opts.Command == AllInOne {
+			return Options{}, errAllInOneFlags
 		}
 		return Options{}, fmt.Errorf("%w: %w", ErrUsage, err)
 	}
@@ -190,6 +206,14 @@ func Parse(args []string, out io.Writer) (Options, error) {
 	}
 	return opts, nil
 }
+
+// usageError is a usage error that prints without the generic prefix.
+type usageError string
+
+func (e usageError) Error() string        { return string(e) }
+func (e usageError) Is(target error) bool { return target == ErrUsage }
+
+const errAllInOneFlags = usageError("nefercap: all-in-one mode takes no flags; it reads $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config). Use shot, rec, screenshot or record for per-run overrides.")
 
 func usageErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrUsage, fmt.Sprintf(format, a...))

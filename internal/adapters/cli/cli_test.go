@@ -20,10 +20,11 @@ func TestParseValid(t *testing.T) {
 		args []string
 		want cli.Options
 	}{
-		{"default shot", nil, cli.Options{Command: cli.Shot}},
-		{"default shot debug", []string{"-debug"}, cli.Options{Command: cli.Shot, Debug: true}},
-		{"default shot flags", []string{"-file", "a.png", "-output", "DP-1"},
-			cli.Options{Command: cli.Shot, Path: "a.png", Output: "DP-1"}},
+		{"all-in-one", nil, cli.Options{Command: cli.AllInOne}},
+		{"all-in-one debug", []string{"-debug"}, cli.Options{Command: cli.AllInOne, Debug: true}},
+		{"shot clipboard", []string{"shot", "-clipboard"}, cli.Options{Command: cli.Shot, Clipboard: true}},
+		{"shot clipboard file", []string{"shot", "-clipboard", "-file", "a.png"},
+			cli.Options{Command: cli.Shot, Clipboard: true, Path: "a.png"}},
 		{"shot", []string{"shot"}, cli.Options{Command: cli.Shot}},
 		{"shot all", []string{"shot", "-file", "a.png", "-output", "DP-1", "-debug"},
 			cli.Options{Command: cli.Shot, Path: "a.png", Output: "DP-1", Debug: true}},
@@ -143,6 +144,19 @@ func TestParseUsageErrors(t *testing.T) {
 			assert.Equal(t, cli.Options{}, got)
 			assert.Empty(t, out.String(), "errors are reported by the caller")
 		})
+	}
+}
+
+func TestAllInOneRejectsFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"-file", "a.png"}, {"-output", "DP-1"}, {"-clipboard"}, {"-region", "0,0,1x1"}, {"-fps", "30"},
+		{"-size", "2x2"}, {"-duration", "1s"}, {"-nope"}, {"-debug", "-file", "a.png"}, {"-file", ""},
+	} {
+		got, err := cli.Parse(args, nil)
+		require.ErrorIs(t, err, cli.ErrUsage, args)
+		assert.ErrorContains(t, err, "all-in-one mode takes no flags")
+		assert.ErrorContains(t, err, "Use shot, rec, screenshot or record for per-run overrides.")
+		assert.Equal(t, cli.Options{}, got)
 	}
 }
 

@@ -48,6 +48,35 @@ func TestControlCommands(t *testing.T) {
 	}
 }
 
+func TestAllInOneStopsActiveRecording(t *testing.T) {
+	runtime := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(runtime, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	var out bytes.Buffer
+	ctx := context.Background()
+	if handled, err := controlCommand(ctx, cli.AllInOne, &out); handled || err != nil {
+		t.Fatalf("idle all-in-one must open the selector: %t %v", handled, err)
+	}
+	server, err := control.Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	if handled, err := controlCommand(ctx, cli.AllInOne, &out); !handled || err != nil || out.Len() != 0 {
+		t.Fatalf("active all-in-one: %t %v %q", handled, err, out.String())
+	}
+	select {
+	case got := <-server.Requests():
+		if got != control.RequestStop {
+			t.Fatalf("request: %v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stop not delivered")
+	}
+}
+
 func TestStopOnRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

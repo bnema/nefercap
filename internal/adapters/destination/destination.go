@@ -32,7 +32,14 @@ var ErrNoHome = errors.New("destination: no absolute home directory")
 
 // Screenshot returns a new .png path in the user's XDG pictures directory
 // (Screenshots subdirectory), falling back to $HOME/Pictures/Screenshots.
-func Screenshot() (string, error) {
+func Screenshot() (string, error) { return ScreenshotIn("") }
+
+// ScreenshotIn is Screenshot inside dir, an absolute directory that is created
+// when missing. An empty dir selects the XDG default.
+func ScreenshotIn(dir string) (string, error) {
+	if dir != "" {
+		return propose(".png", func() (string, error) { return dir, nil })
+	}
 	return propose(".png", func() (string, error) {
 		return userDir("XDG_PICTURES_DIR", "Pictures", "Screenshots")
 	})
@@ -40,7 +47,14 @@ func Screenshot() (string, error) {
 
 // Video returns a new .mp4 path in the user's XDG videos directory, falling
 // back to $HOME/Videos.
-func Video() (string, error) {
+func Video() (string, error) { return VideoIn("") }
+
+// VideoIn is Video inside dir, an absolute directory that is created when
+// missing. An empty dir selects the XDG default.
+func VideoIn(dir string) (string, error) {
+	if dir != "" {
+		return propose(".mp4", func() (string, error) { return dir, nil })
+	}
 	return propose(".mp4", func() (string, error) {
 		return userDir("XDG_VIDEOS_DIR", "Videos")
 	})

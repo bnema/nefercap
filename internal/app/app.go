@@ -10,6 +10,7 @@ import (
 
 	"github.com/bnema/nefercap/internal/adapters/cli"
 	"github.com/bnema/nefercap/internal/adapters/clipboard"
+	"github.com/bnema/nefercap/internal/adapters/config"
 	"github.com/bnema/nefercap/internal/adapters/png"
 	"github.com/bnema/nefercap/internal/adapters/wayland"
 	"github.com/bnema/nefercap/internal/core"
@@ -49,12 +50,17 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 		return nil
 	}
 	var selection ports.Selection
-	if options.Command == cli.Shot || options.Command == cli.Rec {
+	if options.Command == cli.Shot || options.Command == cli.Rec || options.Command == cli.AllInOne {
+		// Fail on a bad config before anything is shown.
+		settings, loadErr := config.Load()
+		if loadErr != nil {
+			return fmt.Errorf("load config: %w", loadErr)
+		}
 		if err := rejectCompetingSelector(ctx); err != nil {
 			return err
 		}
 		var accepted bool
-		selection, accepted, err = chooseInteractive(ctx, source, outputs, options)
+		selection, accepted, err = chooseInteractive(ctx, source, outputs, options, settings)
 		if err != nil || !accepted {
 			return err
 		}
@@ -76,7 +82,7 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 	log := logging.For(ctx, "app")
 	log.Info().Str("mode", string(selection.Mode)).Msg("capture started")
 	var saved bool
-	if options.Command == cli.Rec || options.Command == cli.Record {
+	if selection.Mode == ports.Record {
 		var outcome recordingOutcome
 		outcome, err = recordInteractive(ctx, source, outputs, selection)
 		saved = outcome.Saved

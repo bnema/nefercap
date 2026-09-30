@@ -6,6 +6,7 @@ Fast Wayland screenshots and silent video recording with a NeferGUI layer-shell 
 
 ```sh
 make bin
+./bin/nefercap
 ./bin/nefercap shot
 ./bin/nefercap shot -clipboard
 ./bin/nefercap shot -clipboard -file capture.png
@@ -14,7 +15,9 @@ make bin
 ./bin/nefercap status
 ```
 
-`nefercap` without a command starts screenshot selection. The selector covers the connected outputs, up to nine:
+`nefercap` without a command is all-in-one: it stops an active recording, otherwise opens the selector in shot mode. **Tab** switches shot ⇄ rec and keeps the chosen region, monitor or workspace; Enter or a click confirms in the current mode. It takes no flags except `-debug` and reads its settings from the config file. `shot` and `rec` keep a fixed mode (no Tab) and accept `-file`/`-clipboard` (shot) to override the config per run. A badge at the top left of every overlay always shows the mode: `SHOT`, or a red `● REC`.
+
+The selector covers the connected outputs, up to nine:
 
 - **Drag and release:** capture a rectangle, clamped to its monitor.
 - **Click:** capture the monitor; small pointer jitter counts as a click.
@@ -25,23 +28,30 @@ make bin
 
 The selector shows mode keys and the current confirmation action in a two-line legend. Workspace hints appear only when a current workspace is available. Text uses a 1rem base (16 logical pixels), with proportional spacing and controls; the output's fractional scaling determines physical size.
 
-The guides are visible by default: three vertical and three horizontal medium-gray lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. To hide them on startup, set this in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
+The guides are visible by default: three vertical and three horizontal medium-gray lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. Settings live in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
 
 ```ini
-selector.grid = off
+selector.grid = on
+screenshot.dir = ~/Pictures/Screenshots
+screenshot.output = file+clipboard
+video.dir = ~/Videos
 ```
 
-Use `on` to enable them. The config accepts this setting once, blank lines and `#` comment lines; unknown keys, duplicates and invalid values are errors. **G** changes visibility for the current monitor's overlay without rewriting the config. Selection dimensions are logical pixels; the captured file's dimensions depend on the monitor scaling.
+- `selector.grid`: `on` (default) or `off` to hide the guides on startup.
+- `screenshot.dir`, `video.dir`: an absolute path or `~/…`; relative paths are errors. The directory is created (private) when missing. Absent, the XDG defaults below apply.
+- `screenshot.output`: `file` (default), `file+clipboard` (save, then copy the same PNG) or `clipboard` (copy only; no file, no path printed).
+
+Each key may appear once; blank lines and `#` comment lines are allowed; unknown keys, duplicates and invalid values are errors reported before the selector opens. `screenshot.output` and the directories apply to all-in-one, `shot` and `rec`; the scripted `screenshot` and `record` never read them. On `shot`, `-clipboard` alone copies only, `-clipboard -file PATH` saves and copies, and `-file PATH` alone saves only, whatever `screenshot.output` says. **G** changes visibility for the current monitor's overlay without rewriting the config. Selection dimensions are logical pixels; the captured file's dimensions depend on the monitor scaling.
 
 A screenshot saves immediately. Recording displays a red border around the visible target and a small **REC / Stop** HUD. Both are excluded from nefercap's video. The HUD takes no keyboard focus; clicks outside Stop pass through. Press the recording shortcut again, click Stop, or run `nefercap stop` to finish the file.
 
 Monitor recording follows workspace changes. A workspace recording follows its stable identity and continues when another workspace is displayed. A fixed region stays attached to its monitor. A hidden workspace has no border on the unrelated visible workspace; the recording HUD remains available.
 
-Screenshots go to the configured XDG Pictures directory's `Screenshots` subdirectory, and videos to the XDG Videos directory. Names include a nanosecond timestamp. `-file` chooses an explicit destination. Files are private to their owner and are never overwritten. The saved path is printed to stdout, including for scripted commands. Cancelling before any frame is written creates no file and prints no path.
+Without `screenshot.dir`/`video.dir`, screenshots go to the configured XDG Pictures directory's `Screenshots` subdirectory, and videos to the XDG Videos directory. Names include a nanosecond timestamp. `-file` chooses an explicit destination. Files are private to their owner and are never overwritten. The saved path is printed to stdout, including for scripted commands. Cancelling before any frame is written creates no file and prints no path.
 
 `shot -clipboard` copies an `image/png` screenshot using `wl-copy` without creating a capture file or printing a path. Add `-file PATH` to save and copy the same PNG. A successfully saved file is retained and its path printed even if clipboard copying later fails. The clipboard owner intentionally survives nefercap's exit. This CLI-only option also works with scripted `screenshot`; other commands reject it. Install `wl-clipboard` to use it.
 
-Opening screenshot selection while a recording is active is refused: its overlay is not part of the existing session's authorized controls. A scripted `screenshot` still uses standard capture and includes the active HUD and border.
+`shot` while a recording is active is refused: its overlay is not part of the existing session's authorized controls. A scripted `screenshot` still uses standard capture and includes the active HUD and border.
 
 ## Requirements
 
