@@ -437,8 +437,11 @@ func TestCaptureAllocations(t *testing.T) {
 	require.LessOrEqual(t, avg, float64(allocBudget))
 }
 
+// BenchmarkCapture measures Capture in a tight loop. The compositor needs
+// longer than the poll to fill a frame, so many calls repeat the last frame;
+// fresh-frames/op says how many were new.
 func BenchmarkCapture(b *testing.B) {
-	s, _ := newSource(b, testserver.Config{Outputs: []testserver.OutputSpec{{Name: "BENCH", Width: 1920, Height: 1080, Scale: 1}}})
+	s, srv := newSource(b, testserver.Config{Outputs: []testserver.OutputSpec{{Name: "BENCH", Width: 1920, Height: 1080, Scale: 1}}})
 	target := ports.Target{OutputID: firstOutput(b, s).ID}
 	ctx := context.Background()
 	b.ReportAllocs()
@@ -449,6 +452,7 @@ func BenchmarkCapture(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	b.ReportMetric(float64(srv.Stats().Ready)/float64(b.N), "fresh-frames/op")
 }
 
 // Opt-in: NEFERCAP_WAYLAND_SOCKET names the socket of a disposable headless
