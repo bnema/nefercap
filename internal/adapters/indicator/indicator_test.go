@@ -101,6 +101,27 @@ func TestLayerConfigTakesNoFocusAndOnlyStopInput(t *testing.T) {
 	assert.LessOrEqual(t, r.X+r.Width, int32(Width))
 }
 
+func TestHUDReadabilityAndStopGeometry(t *testing.T) {
+	assert.Equal(t, 384, Width)
+	assert.Equal(t, 40, Height)
+	assert.Equal(t, 90, stopWidth)
+	assert.Contains(t, styleSheet, "font-size: 1rem")
+	assert.Contains(t, styleSheet, "width: 5.625rem")
+	assert.Contains(t, styleSheet, "line-height: 2.5rem")
+	assert.Contains(t, styleSheet, "padding: 0; line-height:")
+	assert.Equal(t, nefergui.Rect{X: 294, Y: 0, Width: 90, Height: 40}, stopRect())
+}
+
+func BenchmarkRefreshUnchanged(b *testing.B) {
+	start := time.Unix(100, 0)
+	h := newHUD(start, make(chan struct{}, 1), "workspace")
+	h.refresh(start)
+	b.ReportAllocs()
+	for b.Loop() {
+		h.refresh(start)
+	}
+}
+
 func TestRunRejectsBadSetup(t *testing.T) {
 	stop := make(chan struct{}, 1)
 	ok := func(context.Context, nefergui.WaylandSurface) error { return nil }

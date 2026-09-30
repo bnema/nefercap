@@ -44,14 +44,16 @@ type model struct {
 	end  endKind
 	sess *session // shared first-decision record; the only cross-overlay state
 
-	workspace  ports.Workspace // zero ID: none
-	header     string          // static per surface
-	footerText string
-	label      label
+	workspace       ports.Workspace // zero ID: none
+	header          string          // static per surface
+	footerText      string
+	footerKind      core.PickKind
+	footerWorkspace bool
+	label           label
 }
 
 func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
-	return &model{mode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode)}
+	return &model{mode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false)}
 }
 
 // resize is the OnResize callback. A logical size change (re)starts the
@@ -70,6 +72,7 @@ func (m *model) resize(w, h int, scale float64) {
 	m.sized, m.w, m.h, m.scale = true, w, h, scale
 	m.label.clear()
 	m.picker.SetWorkspace(m.workspace.ID, m.workspace.Region)
+	m.refreshFooter()
 	m.layoutGrid()
 }
 
@@ -233,7 +236,17 @@ func outputKey(name string, n int) (int, bool) {
 }
 
 // settle mirrors the picker's terminal state and refreshes the label.
+func (m *model) refreshFooter() {
+	kind := m.picker.Kind()
+	_, _, workspace := m.picker.Workspace()
+	if kind != m.footerKind || workspace != m.footerWorkspace {
+		m.footerKind, m.footerWorkspace = kind, workspace
+		m.footerText = footerText(m.mode, kind, workspace)
+	}
+}
+
 func (m *model) settle() {
+	m.refreshFooter()
 	switch m.picker.Status() {
 	case core.PickAccepted:
 		r, _ := m.picker.Result()
@@ -249,6 +262,8 @@ func (m *model) settle() {
 		m.label.set(r.Width, r.Height)
 	} else if m.picker.Kind() == core.PickMonitor {
 		m.label.set(m.w, m.h)
+	} else if _, r, ok := m.picker.Workspace(); ok && m.picker.Kind() == core.PickWorkspace {
+		m.label.set(r.Width, r.Height)
 	} else {
 		m.label.clear()
 	}

@@ -5,27 +5,38 @@ import (
 	"github.com/bnema/nefercap/internal/ports"
 )
 
-// Fixed overlay element sizes in logical pixels.
+// Node.Rect takes logical pixels, not CSS units. Keep geometry in em
+// multiples of the stylesheet's 1rem base (NeferGUI defaults to 16px).
 const (
-	// 4px tag padding leaves 18px for the default 13px monospace line.
-	labelW, labelH   = 120.0, 26.0
-	footerW, footerH = 400.0, 28.0
-	headerH          = 28.0
+	baseFont         = 16.0
+	tagPadY          = baseFont * 0.25
+	tagPadX          = baseFont * 0.625
+	labelW, labelH   = baseFont * 9, baseFont * 2
+	footerW, footerH = baseFont * 40, baseFont * 3.5
+	headerH          = labelH
 	edge             = 1.0 // thin selection lines
-	margin           = 16.0
+	margin           = baseFont
 )
 
-// Footer hints; the first word names the mode.
-const (
-	footerShot = "shot · drag region · click monitor · Esc"
-	footerRec  = "rec · drag region · click monitor · Esc"
-)
-
-func footerText(mode ports.Mode) string {
+// footerText is rebuilt only when the capture mode, picker kind or workspace
+// availability changes; pointer motion never formats hints.
+func footerText(mode ports.Mode, kind core.PickKind, workspace bool) string {
+	text, action := "shot · R region · M monitor", "capture"
 	if mode == ports.Record {
-		return footerRec
+		text, action = "rec · R region · M monitor", "record"
 	}
-	return footerShot
+	if workspace {
+		text += " · W workspace"
+	}
+	text += " · G grid · Esc cancel\n"
+	switch kind {
+	case core.PickMonitor:
+		return text + "Enter " + action + " monitor · click " + action + " monitor"
+	case core.PickWorkspace:
+		return text + "Enter " + action + " workspace · click " + action + " workspace"
+	default:
+		return text + "drag + release " + action + " region · click " + action + " monitor"
+	}
 }
 
 // frect is a float rectangle in surface-local logical pixels, the unit
@@ -92,17 +103,45 @@ func (m *model) scene() scene {
 	if m.label.text != "" && outline {
 		s.label = labelRect(fr, w, h)
 	}
-	s.header = frect{margin, margin, headerWidth(m.header), headerH}
-	s.footer = frect{(w - footerW) / 2, h - footerH - margin, footerW, footerH}
-	if w < footerW+2*margin { // narrow surface: keep the hints on screen
-		s.footer.x, s.footer.w = 0, w
+	hw, hh := min(headerWidth(m.header), w), min(headerH, h)
+	s.header = frect{min(margin, max(w-hw, 0)), min(margin, max(h-hh, 0)), hw, hh}
+	// Keep workspace dimensions clear of the output header; region and
+	// monitor labels retain their independent placement.
+	if m.picker.Kind() == core.PickWorkspace && s.label.w > 0 &&
+		s.label.x < s.header.x+s.header.w && s.label.x+s.label.w > s.header.x &&
+		s.label.y < s.header.y+s.header.h && s.label.y+s.label.h > s.header.y {
+		y := max(fr.y+tagPadY, s.header.y+s.header.h+tagPadY)
+		if y+s.label.h <= h {
+			s.label.y = y
+		}
 	}
+	fw := min(footerW, w)
+	fh := min(footerHeight(m.footerText, fw), h)
+	s.footer = frect{(w - fw) / 2, max(h-fh-margin, 0), fw, fh}
 	return s
+}
+
+// footerHeight counts every explicit row separately, reserving conservative
+// monospace cells and metric lines for wrapping. Range counts runes (including
+// the middle-dot separators) without allocating per scene.
+func footerHeight(text string, width float64) float64 {
+	cells := max(int((width-2*tagPadX)/(baseFont*0.625)), 1)
+	lines, count := 0, 0
+	for _, r := range text {
+		if r == '\n' {
+			lines += max((count+cells-1)/cells, 1)
+			count = 0
+		} else {
+			count++
+		}
+	}
+	lines += max((count+cells-1)/cells, 1)
+	return max(footerH, float64(lines)*baseFont*1.5+2*tagPadY)
 }
 
 // headerWidth is a monospace estimate of the header text plus padding.
 func headerWidth(text string) float64 {
-	return float64(len([]rune(text)))*8 + 20
+	return float64(len([]rune(text)))*baseFont*0.625 + 2*tagPadX
 }
 
 // labelRect places the size label above the region, or just inside it when

@@ -1,16 +1,21 @@
-/* Recording HUD: 300x32, monospace, one red accent. */
+/* Recording HUD: 24rem x 2.5rem, monospace, one red accent. */
 app {
   width: 100%; height: 100%; background-color: transparent;
-  font-family: monospace; font-size: 13px; color: #e6edf3;
+  font-family: monospace; font-size: 1rem; color: #e6edf3;
 }
 row.bar {
   display: flex; flex-direction: row; align-items: center;
   width: 100%; height: 100%; box-sizing: border-box;
-  background-color: rgba(13, 16, 20, 0.92); border: 1px solid #e5484d;
+  background-color: rgba(13, 16, 20, 0.92);
 }
-text.timer { flex-grow: 1; min-width: 0; overflow: hidden; padding-left: 10px; color: #e6edf3; }
+text.timer {
+  flex-grow: 1; min-width: 0; overflow: hidden;
+  height: 100%; box-sizing: border-box; padding-left: 0.625em;
+  line-height: 2.375rem; color: #e6edf3; border: 1px solid #e5484d;
+}
 button.stop {
-  width: 72px; height: 100%; flex-shrink: 0; box-sizing: border-box;
+  width: 5.625rem; height: 100%; flex-shrink: 0; box-sizing: border-box;
+  padding: 0; line-height: 2.5rem;
   background-color: #e5484d; color: #ffffff; border: 0; text-align: center;
 }
 button.stop:hover { background-color: #ff6369; }

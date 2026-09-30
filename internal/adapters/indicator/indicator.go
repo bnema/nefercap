@@ -34,9 +34,10 @@ var styleSheet string
 
 // HUD geometry in logical pixels. The Stop button is the only input region.
 const (
-	Width, Height = 300, 32
-	stopWidth     = 72
-	topMargin     = 8
+	baseFont      = 16
+	Width, Height = baseFont * 24, baseFont * 5 / 2
+	stopWidth     = baseFont * 45 / 8 // 5.625rem in CSS
+	topMargin     = baseFont / 2
 	namespace     = "nefercap-indicator"
 	tick          = time.Second
 )

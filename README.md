@@ -21,6 +21,8 @@ make bin
 - **R:** return to rectangle selection. **G:** toggle full-monitor center and thirds guides.
 - **1–9:** select that monitor. **Esc:** cancel without creating a capture.
 
+The selector shows mode keys and the current confirmation action in a two-line legend. Workspace hints appear only when a current workspace is available. Text uses a 1rem base (16 logical pixels), with proportional spacing and controls; the output's fractional scaling determines physical size.
+
 The guides are visible by default: three vertical and three horizontal medium-gray lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. To hide them on startup, set this in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
 
 ```ini

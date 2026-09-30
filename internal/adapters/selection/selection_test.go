@@ -593,7 +593,7 @@ func BenchmarkGridResizeScene(b *testing.B) {
 
 func TestLabelPlacementStaysOnSurface(t *testing.T) {
 	// Above the region, with a 4px gap.
-	assert.Equal(t, frect{1800, 1010 - labelH - 4, labelW, labelH}, labelRect(frect{1800, 1010, 100, 50}, 1920, 1080))
+	assert.Equal(t, frect{1920 - labelW, 1010 - labelH - 4, labelW, labelH}, labelRect(frect{1800, 1010, 100, 50}, 1920, 1080))
 	// No room above: just inside the region's top-left corner.
 	assert.Equal(t, frect{4, 4, labelW, labelH}, labelRect(frect{0, 0, 500, 500}, 1920, 1080))
 	// Exactly enough room above: the label touches the gap, not the edge.
@@ -621,19 +621,19 @@ func TestLabelStaysOnSurfaceWhenItFits(t *testing.T) {
 	}
 }
 
-// The tallest default 13px monospace line is 17.71px (Noto Sans Mono).
+// Noto Sans Mono's normal line is approximately 1.37em tall.
 // Keep the sizing assumptions explicit rather than partially parsing CSS.
 func TestLabelContentHoldsMonospaceLine(t *testing.T) {
-	const line, padY = 17.71, 4.0
-	require.True(t, strings.Contains(styleSheet, "box-sizing: border-box; padding: 4px 10px; overflow: hidden;"), "update label sizing when tag box sizing changes")
+	const line, padY = baseFont * 1.37, tagPadY
+	require.True(t, strings.Contains(styleSheet, "box-sizing: border-box; padding: 0.25em 0.625em; overflow: hidden;"), "update label sizing when tag box sizing changes")
 	content := labelH - 2*padY
 	assert.GreaterOrEqual(t, content, line, "label clips its text line")
 	assert.GreaterOrEqual(t, content-line+padY, 1.0, "less than 1px below the text line")
 }
 
 func TestFooterAndHeaderText(t *testing.T) {
-	assert.Equal(t, "shot · drag region · click monitor · Esc", footerText(ports.Screenshot))
-	assert.Equal(t, "rec · drag region · click monitor · Esc", footerText(ports.Record))
+	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false), "shot · R region")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false), "rec · R region")
 	assert.Equal(t, "DP-1 · 1/2 · keys 1-2 pick monitor", headerText(testOutputs, 0))
 	assert.Equal(t, "DP-1", headerText(testOutputs[:1], 0))
 	i, ok := outputKey("2", 2)
