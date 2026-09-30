@@ -1,0 +1,21 @@
+version: 1
+components:
+  core: { role: core, paths: [internal/core/**] }
+  ports: { role: ports, paths: [internal/ports/**] }
+  adapters: { role: adapter, paths: [internal/adapters/**, internal/logging/**] }
+  # app is the composition root: it wires adapters to core, like cmd.
+  entrypoints: { role: entrypoint, paths: [cmd/**, internal/app/**] }
+  generated: { role: ignore, paths: [internal/mocks/**] }
+rules:
+  no-adapter-imports-in-core: error
+  no-infra-imports-in-usecase: error
+  no-framework-types-in-core: error
+  no-infra-types-in-ports: error
+  missing-generated-mock-for-port: error
+mocking:
+  generatedMockPaths: [internal/mocks/**]
+  generatedMockNamePatterns: ['Mock{{Interface}}', '{{Interface}}Mock']
+ruleSettings:
+  suspicious-business-logic-in-adapter:
+    # app is the composition root; starting core and wiring channels is its job.
+    excludePaths: [internal/app/app.go]
