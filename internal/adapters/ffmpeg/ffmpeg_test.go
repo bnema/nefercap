@@ -79,9 +79,13 @@ func TestStartValidation(t *testing.T) {
 		{"one dimension", f, ports.VideoSettings{FPS: 30, Width: 32}, false},
 		{"odd output", f, ports.VideoSettings{FPS: 30, Width: 33, Height: 32}, false},
 		{"huge output", f, ports.VideoSettings{FPS: 30, Width: 16386, Height: 32}, false},
-		{"odd source retained", odd, ports.VideoSettings{FPS: 30}, true},
+		{"odd source without size", odd, ports.VideoSettings{FPS: 30}, false},
+		{"odd width source without size", newFrame(63, 48, 256, 0), ports.VideoSettings{FPS: 30}, false},
+		{"odd source explicit scale", odd, ports.VideoSettings{FPS: 30, Width: 32, Height: 24}, true},
+		{"even source retained", f, ports.VideoSettings{FPS: 30}, true},
+		{"output over frame limit", f, ports.VideoSettings{FPS: 30, Width: 16384, Height: 16384}, false},
 		{"even scale", f, ports.VideoSettings{FPS: 120, Width: 32, Height: 24}, true},
-		{"1x1 source retained", newFrame(1, 1, 4, 0), ports.VideoSettings{FPS: 30}, false},
+		{"1x1 source without size", newFrame(1, 1, 4, 0), ports.VideoSettings{FPS: 30}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,14 +106,61 @@ func TestStartValidation(t *testing.T) {
 
 func TestBuildArgs(t *testing.T) {
 	f := newFrame(63, 47, 252, 0)
-	args := strings.Join(buildArgs(f, 62, 46, 30, true), " ")
-	for _, want := range []string{"-pix_fmt bgr0", "-video_size 63x47", "crop=62:46:0:0,scale=62:46", "-preset fast", "libx264", "pipe:3", "-an"} {
+	args := strings.Join(buildArgs(f, 62, 46, 30), " ")
+	for _, want := range []string{"-pix_fmt bgr0", "-video_size 63x47", "-vf scale=62:46:", "-preset fast", "libx264", "-threads 2", "-filter_threads 1", "pipe:3", "-an"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args missing %q: %s", want, args)
 		}
 	}
-	if strings.Contains(strings.Join(buildArgs(f, 32, 32, 30, false), " "), "crop") {
-		t.Error("explicit scaling must not crop")
+	if strings.Contains(args, "crop") {
+		t.Error("frames must never be cropped")
+	}
+}
+
+func TestOutputSize(t *testing.T) {
+	const limit = ports.MaxFrameBytes / ports.BytesPerPixel
+	f := newFrame(64, 48, 256, 0)
+	for _, tc := range []struct {
+		name         string
+		frame        ports.Frame
+		set          ports.VideoSettings
+		wantW, wantH int
+		ok           bool
+	}{
+		{"retain", f, ports.VideoSettings{FPS: 1}, 64, 48, true},
+		{"odd height source", newFrame(64, 47, 256, 0), ports.VideoSettings{FPS: 1}, 0, 0, false},
+		{"explicit scale of odd source", newFrame(63, 47, 252, 0), ports.VideoSettings{FPS: 1, Width: 64, Height: 48}, 64, 48, true},
+		{"only width", f, ports.VideoSettings{FPS: 1, Width: 64}, 0, 0, false},
+		{"negative", f, ports.VideoSettings{FPS: 1, Width: -2, Height: 2}, 0, 0, false},
+		{"at frame byte limit", f, ports.VideoSettings{FPS: 1, Width: 8192, Height: limit / 8192}, 8192, limit / 8192, true},
+		{"over frame byte limit", f, ports.VideoSettings{FPS: 1, Width: 8192, Height: limit/8192 + 2}, 0, 0, false},
+		{"max dimensions", f, ports.VideoSettings{FPS: 1, Width: ports.MaxDimension, Height: ports.MaxDimension}, 0, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, h, err := outputSize(tc.frame, tc.set)
+			if (err == nil) != tc.ok || w != tc.wantW || h != tc.wantH {
+				t.Fatalf("got %dx%d, %v; want %dx%d ok=%v", w, h, err, tc.wantW, tc.wantH, tc.ok)
+			}
+		})
+	}
+}
+
+func TestOutputFilesArePrivate(t *testing.T) {
+	w := helperWriter(t, "drain")
+	w.closeTimeout = 10 * time.Second
+	path := filepath.Join(t.TempDir(), "v.mp4")
+	f := newFrame(4, 4, 16, 0)
+	if err := w.Start(context.Background(), f, path, settings()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, err = %v; want 0600", info.Mode(), err)
 	}
 }
 
@@ -471,7 +522,7 @@ func TestRealFFmpeg(t *testing.T) {
 		cancelInstead bool
 	}{
 		{"retain padded inverted", 64, 48, 64*4 + 16, ports.VideoSettings{FPS: 30}, 64, 48, true, false},
-		{"odd source cropped", 63, 47, 63 * 4, ports.VideoSettings{FPS: 30}, 62, 46, false, false},
+		{"odd source scaled", 63, 47, 63 * 4, ports.VideoSettings{FPS: 30, Width: 62, Height: 46}, 62, 46, false, false},
 		{"scaled", 64, 48, 64 * 4, ports.VideoSettings{FPS: 60, Width: 32, Height: 24}, 32, 24, false, false},
 		{"graceful cancel keeps video", 64, 48, 64 * 4, ports.VideoSettings{FPS: 30}, 64, 48, false, true},
 	} {

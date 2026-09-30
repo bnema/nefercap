@@ -56,6 +56,9 @@ func TestSaveConvertsBGRAWithStrideAndInvert(t *testing.T) {
 				}
 			}
 		}
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode = %v, err = %v; want 0600", info.Mode(), err)
+		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

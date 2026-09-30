@@ -107,35 +107,35 @@ func NewWithBinary(binary string) *Writer {
 }
 
 // outputSize validates settings and returns the encoded dimensions. Zero
-// dimensions retain the source size rounded down to even values (yuv420p).
+// dimensions retain the source resolution exactly, which yuv420p only allows
+// for even sizes; odd sources are rejected rather than cropped. Explicit
+// sizes must be even and no larger than a captured frame may be.
 func outputSize(f ports.Frame, s ports.VideoSettings) (int, int, error) {
 	if s.FPS < 1 || s.FPS > ports.MaxFPS {
 		return 0, 0, fmt.Errorf("ffmpeg: fps %d outside 1..%d", s.FPS, ports.MaxFPS)
 	}
 	if s.Width == 0 && s.Height == 0 {
-		w, h := f.Width&^1, f.Height&^1
-		if w < 2 || h < 2 {
-			return 0, 0, fmt.Errorf("ffmpeg: source %dx%d too small to encode", f.Width, f.Height)
+		if f.Width%2 != 0 || f.Height%2 != 0 {
+			return 0, 0, fmt.Errorf("ffmpeg: source %dx%d has an odd dimension; set an even output size to scale", f.Width, f.Height)
 		}
-		return w, h, nil
+		return f.Width, f.Height, nil
 	}
 	if s.Width < 2 || s.Height < 2 || s.Width > ports.MaxDimension || s.Height > ports.MaxDimension ||
 		s.Width%2 != 0 || s.Height%2 != 0 {
 		return 0, 0, fmt.Errorf("ffmpeg: output size %dx%d must be even, positive and at most %d", s.Width, s.Height, ports.MaxDimension)
+	}
+	if s.Width > ports.MaxFrameBytes/ports.BytesPerPixel/s.Height {
+		return 0, 0, fmt.Errorf("ffmpeg: output size %dx%d exceeds %d bytes per frame", s.Width, s.Height, ports.MaxFrameBytes)
 	}
 	return s.Width, s.Height, nil
 }
 
 // buildArgs returns the FFmpeg argument vector (no shell). Input is raw bgr0
 // on stdin; MP4 is fragmented to fd 3, an inherited pre-opened output file.
-// When retain is set, an odd source is cropped by at most one row/column
-// instead of being resampled.
-func buildArgs(f ports.Frame, outW, outH, fps int, retain bool) []string {
-	filter := ""
-	if retain && (outW != f.Width || outH != f.Height) {
-		filter = "crop=" + strconv.Itoa(outW) + ":" + strconv.Itoa(outH) + ":0:0,"
-	}
-	filter += "scale=" + strconv.Itoa(outW) + ":" + strconv.Itoa(outH) +
+// The scale filter always runs: with unchanged geometry it only performs the
+// required RGB to BT.709 limited-range YUV conversion and does not resample.
+func buildArgs(f ports.Frame, outW, outH, fps int) []string {
+	filter := "scale=" + strconv.Itoa(outW) + ":" + strconv.Itoa(outH) +
 		":flags=bicubic:out_color_matrix=bt709:out_range=tv,format=yuv420p"
 	rate := strconv.Itoa(fps)
 	return []string{
@@ -143,8 +143,8 @@ func buildArgs(f ports.Frame, outW, outH, fps int, retain bool) []string {
 		"-f", "rawvideo", "-pix_fmt", "bgr0",
 		"-video_size", strconv.Itoa(f.Width) + "x" + strconv.Itoa(f.Height),
 		"-framerate", rate, "-i", "pipe:0",
-		"-an", "-vf", filter,
-		"-c:v", "libx264", "-preset", "fast", "-crf", "23",
+		"-filter_threads", "1", "-an", "-vf", filter,
+		"-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "23",
 		"-x264-params", "rc-lookahead=10:sync-lookahead=0",
 		"-g", strconv.Itoa(fps * 2), "-r", rate,
 		"-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
@@ -181,7 +181,7 @@ func (w *Writer) Start(ctx context.Context, first ports.Frame, path string, s po
 	if err != nil {
 		return fmt.Errorf("ffmpeg: %w", err)
 	}
-	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("%w: %s", ports.ErrPathExists, path)
@@ -203,7 +203,7 @@ func (w *Writer) Start(ctx context.Context, first ports.Frame, path string, s po
 		return fail(fmt.Errorf("ffmpeg: stdin pipe: %w", err), out)
 	}
 	stderr := &boundedBuffer{limit: stderrLimit}
-	cmd := exec.Command(bin, buildArgs(first, outW, outH, s.FPS, s.Width == 0)...)
+	cmd := exec.Command(bin, buildArgs(first, outW, outH, s.FPS)...)
 	cmd.Stdin = pr
 	cmd.Stderr = stderr
 	cmd.ExtraFiles = []*os.File{out}

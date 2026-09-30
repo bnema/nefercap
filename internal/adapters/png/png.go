@@ -41,7 +41,7 @@ func (*Writer) Save(ctx context.Context, f ports.Frame, path string) (err error)
 	if path == "" {
 		return errors.New("png: empty path")
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("%w: %s", ports.ErrPathExists, path)
