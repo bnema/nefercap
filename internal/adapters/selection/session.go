@@ -9,6 +9,7 @@ import (
 
 	"github.com/bnema/nefercap/internal/adapters/uierrors"
 	"github.com/bnema/nefercap/internal/core"
+	"github.com/bnema/nefercap/internal/ports"
 )
 
 var errOverlayClosed = errors.New("selection: overlay closed by the compositor")
@@ -29,14 +30,25 @@ type session struct {
 	decided  bool
 	accepted bool
 	result   core.PickResult
+	mode     ports.Mode // the mode the confirming overlay showed
 	errs     []error
 }
 
 func newSession(cancel context.CancelFunc) *session { return &session{cancel: cancel} }
 
 // toggle flips the capture mode for every overlay and asks each to redraw.
+// After the first decision it does nothing, so a late Tab on another overlay
+// cannot change what was confirmed.
 func (s *session) toggle() {
-	s.toggles.Add(1)
+	s.mu.Lock()
+	decided := s.decided
+	if !decided {
+		s.toggles.Add(1)
+	}
+	s.mu.Unlock()
+	if decided {
+		return
+	}
 	for _, w := range s.wakes {
 		select {
 		case w <- struct{}{}:
@@ -45,11 +57,12 @@ func (s *session) toggle() {
 	}
 }
 
-// accept records the first decision and ends every overlay.
-func (s *session) accept(r core.PickResult) {
+// accept records the first decision, with the mode its overlay showed, and
+// ends every overlay.
+func (s *session) accept(r core.PickResult, mode ports.Mode) {
 	s.mu.Lock()
 	if !s.decided {
-		s.decided, s.accepted, s.result = true, true, r
+		s.decided, s.accepted, s.result, s.mode = true, true, r, mode
 	}
 	s.mu.Unlock()
 	s.cancel()
@@ -103,4 +116,11 @@ func (s *session) outcome(parent context.Context) (core.PickResult, bool, error)
 		return core.PickResult{}, false, errors.Join(s.errs...)
 	}
 	return s.result, s.accepted, nil
+}
+
+// acceptedMode is the mode recorded by accept.
+func (s *session) acceptedMode() ports.Mode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mode
 }

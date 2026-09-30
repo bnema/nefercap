@@ -94,7 +94,6 @@ Script commands (never open the selector):
 
 Flags:
   -clipboard        copy PNG with wl-copy; no file unless -file is given (shot, screenshot)
-                    shot and rec flags override the config for that run
   -debug            enable debug logging (all commands)
   -output NAME      output name (all except stop, status, outputs)
   -file PATH        new file to write; optional for shot, rec; screenshot requires it unless -clipboard; record requires it
@@ -213,7 +212,7 @@ type usageError string
 func (e usageError) Error() string        { return string(e) }
 func (e usageError) Is(target error) bool { return target == ErrUsage }
 
-const errAllInOneFlags = usageError("nefercap: all-in-one mode takes no flags; it reads $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config). Use shot, rec, screenshot or record for per-run overrides.")
+const errAllInOneFlags = usageError("nefercap: all-in-one mode takes no flags except -debug; it reads $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config); use shot, rec, screenshot or record for per-run overrides")
 
 func usageErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrUsage, fmt.Sprintf(format, a...))

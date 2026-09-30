@@ -128,7 +128,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	if err != nil || !ok {
 		return ports.Selection{}, false, err
 	}
-	return s.selectionFor(modeAfter(s.mode, sess.toggles.Load()), result), true, nil
+	return s.selectionFor(sess.acceptedMode(), result), true, nil
 }
 
 // run shows one overlay on its own output until the context ends.

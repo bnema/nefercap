@@ -36,6 +36,9 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 		}
 		return ports.Selection{}, false, fmt.Errorf("list workspace capture targets: %w", err)
 	}
+	if err := checkDirs(options, settings); err != nil {
+		return ports.Selection{}, false, err
+	}
 	selector := selection.New(mode, options.Video, workspaces, settings.Grid)
 	if options.Command == cli.AllInOne {
 		selector.AllowToggle()
@@ -49,6 +52,27 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 		return ports.Selection{}, false, err
 	}
 	return sel, true, nil
+}
+
+// checkDirs creates and checks the default directories a confirmed capture
+// can use, so a bad screenshot.dir or video.dir fails before the selector
+// opens. All-in-one can reach both modes.
+func checkDirs(options cli.Options, settings config.Settings) error {
+	if options.Path != "" {
+		return nil
+	}
+	all := options.Command == cli.AllInOne
+	if all || options.Command == cli.Rec {
+		if _, err := destination.VideoIn(settings.VideoDir); err != nil {
+			return err
+		}
+	}
+	if (all || options.Command == cli.Shot) && !options.Clipboard && settings.Output != config.OutputClipboard {
+		if _, err := destination.ScreenshotIn(settings.ScreenshotDir); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // assignDestination resolves where an interactive capture goes. Flags win over

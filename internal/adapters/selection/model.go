@@ -256,7 +256,7 @@ func (m *model) key(name string) {
 		// A digit picks that whole monitor from any overlay, without reopening.
 		if i, ok := outputKey(name, len(m.outputs)); ok && !m.picker.Dragging() {
 			m.end = endAccepted
-			m.sess.accept(core.PickResult{OutputID: m.outputs[i].ID, Kind: core.PickMonitor})
+			m.sess.accept(core.PickResult{OutputID: m.outputs[i].ID, Kind: core.PickMonitor}, m.mode)
 		}
 	}
 }
@@ -287,7 +287,7 @@ func (m *model) settle() {
 	case core.PickAccepted:
 		r, _ := m.picker.Result()
 		m.end = endAccepted
-		m.sess.accept(r)
+		m.sess.accept(r, m.mode)
 		return
 	case core.PickCanceled:
 		m.end = endCanceled

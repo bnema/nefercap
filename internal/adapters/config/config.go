@@ -131,7 +131,7 @@ func dir(key, value string) (string, error) {
 	if value == "" || len(value) > maxPath || strings.IndexByte(value, 0) >= 0 {
 		return "", fmt.Errorf("%s must be a non-empty path", key)
 	}
-	if value == "~" || strings.HasPrefix(value, "~/") {
+	if strings.HasPrefix(value, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil || !filepath.IsAbs(home) {
 			return "", fmt.Errorf("%s: no absolute home directory for ~", key)

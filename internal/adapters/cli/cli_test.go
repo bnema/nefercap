@@ -154,8 +154,8 @@ func TestAllInOneRejectsFlags(t *testing.T) {
 	} {
 		got, err := cli.Parse(args, nil)
 		require.ErrorIs(t, err, cli.ErrUsage, args)
-		assert.ErrorContains(t, err, "all-in-one mode takes no flags")
-		assert.ErrorContains(t, err, "Use shot, rec, screenshot or record for per-run overrides.")
+		assert.ErrorContains(t, err, "all-in-one mode takes no flags except -debug")
+		assert.ErrorContains(t, err, "use shot, rec, screenshot or record for per-run overrides")
 		assert.Equal(t, cli.Options{}, got)
 	}
 }

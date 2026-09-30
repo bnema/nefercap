@@ -315,21 +315,49 @@ func TestSelectRejectsBadInput(t *testing.T) {
 func TestSessionFirstDecisionWins(t *testing.T) {
 	sess, ctx := testSession()
 	first := core.PickResult{OutputID: 7, Kind: core.PickMonitor}
-	sess.accept(first)
-	sess.accept(core.PickResult{OutputID: 9, Kind: core.PickMonitor})
+	sess.accept(first, ports.Screenshot)
+	sess.accept(core.PickResult{OutputID: 9, Kind: core.PickMonitor}, ports.Record)
 	sess.abort()
 	assert.Error(t, ctx.Err())
 	res, ok, err := sess.outcome(context.Background())
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, first, res)
+	assert.Equal(t, ports.Screenshot, sess.acceptedMode())
+}
+
+// The recorded mode is the one the confirming overlay showed: a Tab on
+// another overlay after the decision changes nothing.
+func TestLateTabKeepsConfirmedMode(t *testing.T) {
+	sess, _ := testSession()
+	a := newModel(ports.Screenshot, testOutputs, 0, sess, false)
+	b := newModel(ports.Screenshot, testOutputs, 1, sess, false)
+	a.toggle, b.toggle = true, true
+	a.wake, b.wake = make(chan struct{}, 1), make(chan struct{}, 1)
+	sess.wakes = []chan struct{}{a.wake, b.wake}
+	a.resize(1920, 1080, 1)
+	b.resize(1280, 720, 1)
+	b.input(key("Tab"))
+	<-a.wake
+	<-b.wake
+	require.Equal(t, ports.Record, b.mode)
+	b.input(key("m"))
+	b.input(key("Return"))
+	res, ok, err := sess.outcome(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	a.input(key("Tab")) // arrives before a sees the cancel
+	assert.Empty(t, a.wake, "no redraw after the decision")
+	assert.Equal(t, ports.Record, sess.acceptedMode())
+	sel := New(ports.Screenshot, ports.VideoSettings{}, nil, false).AllowToggle().selectionFor(sess.acceptedMode(), res)
+	assert.Equal(t, ports.Record, sel.Mode)
 }
 
 func TestSessionRunEnded(t *testing.T) {
 	boom := errors.New("boom")
 
 	sess, _ := testSession()
-	sess.accept(core.PickResult{OutputID: 7})
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
 	sess.runEnded(context.Background(), "DP-1", context.Canceled) // our own cancel
 	_, ok, err := sess.outcome(context.Background())
 	assert.True(t, ok)
@@ -344,7 +372,7 @@ func TestSessionRunEnded(t *testing.T) {
 	// GO012: a real failure joined with Canceled survives whole, including the
 	// output name, after our own cancel.
 	sess, _ = testSession()
-	sess.accept(core.PickResult{OutputID: 7})
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
 	real := fmt.Errorf("surface close: %w", context.Canceled)
 	sess.runEnded(context.Background(), "DP-2", errors.Join(context.Canceled, real, boom))
 	_, ok, err = sess.outcome(context.Background())
@@ -360,7 +388,7 @@ func TestSessionRunEnded(t *testing.T) {
 	assert.ErrorContains(t, err, "output DP-1")
 
 	sess, _ = testSession()
-	sess.accept(core.PickResult{OutputID: 7})
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
 	sess.runEnded(context.Background(), "DP-1", boom) // a later overlay failing rejects the pick
 	_, ok, err = sess.outcome(context.Background())
 	assert.False(t, ok || err == nil)

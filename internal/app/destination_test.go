@@ -14,6 +14,38 @@ import (
 	"github.com/bnema/nefercap/internal/ports"
 )
 
+// A bad configured directory fails before the selector opens, for every
+// directory the command can reach.
+func TestCheckDirsBeforeSelector(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	good := filepath.Join(root, "good")
+	for _, tc := range []struct {
+		name     string
+		options  cli.Options
+		settings config.Settings
+		wantErr  bool
+	}{
+		{"all-in-one bad video dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: file, ScreenshotDir: good}, true},
+		{"all-in-one bad screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file}, true},
+		{"all-in-one clipboard skips screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file, Output: config.OutputClipboard}, false},
+		{"shot ignores video dir", cli.Options{Command: cli.Shot}, config.Settings{VideoDir: file, ScreenshotDir: good}, false},
+		{"rec ignores screenshot dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: good, ScreenshotDir: file}, false},
+		{"rec bad video dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: file}, true},
+		{"explicit -file skips dirs", cli.Options{Command: cli.Shot, Path: "x.png"}, config.Settings{ScreenshotDir: file}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkDirs(tc.options, tc.settings)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestAssignScreenshotDestination(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shots")
 	for _, tc := range []struct {

@@ -133,7 +133,7 @@ func TestLoadPathsAndOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Settings{Grid: false, ScreenshotDir: filepath.Join(home, "Pics", "Shots"), VideoDir: "/var/tmp/vids", Output: OutputFileClipboard}, got)
 
-	saveConfig(t, path, "screenshot.dir = ~\nscreenshot.output = clipboard\n")
+	saveConfig(t, path, "screenshot.dir = ~/\nscreenshot.output = clipboard\n")
 	got, err = Load()
 	require.NoError(t, err)
 	assert.Equal(t, home, got.ScreenshotDir)
@@ -153,6 +153,7 @@ func TestLoadRejectsInvalidNewKeys(t *testing.T) {
 		{"screenshot.dir = Pictures", "line 1: screenshot.dir must be an absolute path or start with ~/"},
 		{"video.dir = ./v", "line 1: video.dir must be an absolute path"},
 		{"video.dir = ~user/v", "line 1: video.dir must be an absolute path"},
+		{"video.dir = ~", "line 1: video.dir must be an absolute path"},
 		{"video.dir =", "line 1: video.dir must be a non-empty path"},
 		{"screenshot.output = both", "line 1: screenshot.output must be file, file+clipboard or clipboard"},
 		{"screenshot.output = File", "screenshot.output must be"},
