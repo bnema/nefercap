@@ -1,0 +1,8 @@
+/bin/
+/dist/
+.worktrees/
+*.test
+*.out
+coverage/
+go.work
+go.work.sum
