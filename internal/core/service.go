@@ -90,10 +90,6 @@ func (s *Service) abort(err error) error {
 	return err
 }
 
-// stopWriteTimeout bounds the trailing duplicate writes made after a stop
-// request, which must not be interrupted by the cancellation itself.
-const stopWriteTimeout = 2 * time.Second
-
 // schedule maps elapsed time since the first frame to fixed-rate frame slots.
 // Slot n is due at n/fps. total is the slot count of a timed recording, or 0
 // when recording until cancellation.
@@ -136,7 +132,12 @@ func (sc schedule) current() (slot int64, past bool) {
 // missed because Capture or Write ran long reuses the current frame, which is
 // still valid until the next Capture, so the encoded duration stays exact
 // even when wall time overruns. A timed recording ends after ceil(duration*fps)
-// frames; otherwise it ends when ctx is done.
+// frames, so a duration shorter than one frame interval encodes one frame and
+// returns without waiting. Cancellation ends the recording at the last frame
+// already written: nothing is written afterwards, because the writer is
+// cancelled with ctx and storage may be invalidated by an interrupted Capture.
+// Exact frame counts therefore hold only for timed recordings that are not
+// cancelled. Slot n < total is due before the duration, so due cannot overflow.
 func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.Selection) error {
 	sc := newSchedule(time.Now(), sel)
 	timer := time.NewTimer(time.Hour)
@@ -149,11 +150,12 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 			timer.Reset(wait)
 			select {
 			case <-ctx.Done():
-				return s.fillElapsed(ctx, frame, next, sc)
+				return nil
 			case <-timer.C:
 			}
-		} else if ctx.Err() != nil {
-			return s.fillElapsed(ctx, frame, next, sc)
+		}
+		if ctx.Err() != nil {
+			return nil
 		}
 
 		cur, past := sc.current()
@@ -164,6 +166,9 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 			last = cur // window over: no capture for the final slot
 		}
 		for ; next <= last; next++ {
+			if ctx.Err() != nil {
+				return nil
+			}
 			if err := s.video.Write(ctx, frame); err != nil {
 				return writeResult(ctx, err)
 			}
@@ -182,27 +187,13 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 		if err := frame.Validate(); err != nil {
 			return fmt.Errorf("captured frame: %w", err)
 		}
+		if ctx.Err() != nil {
+			return nil
+		}
 		if err := s.video.Write(ctx, frame); err != nil {
 			return writeResult(ctx, err)
 		}
 		next++
-	}
-	return nil
-}
-
-// fillElapsed repeats the current frame for slots that began before the stop
-// request so the file covers the time actually recorded.
-func (s *Service) fillElapsed(ctx context.Context, frame ports.Frame, next int64, sc schedule) error {
-	cur, _ := sc.current()
-	if next > cur {
-		return nil
-	}
-	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopWriteTimeout)
-	defer cancel()
-	for ; next <= cur; next++ {
-		if err := s.video.Write(wctx, frame); err != nil {
-			return fmt.Errorf("write trailing frame: %w", err)
-		}
 	}
 	return nil
 }

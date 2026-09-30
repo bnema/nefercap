@@ -404,7 +404,7 @@ func TestRecordExactFrameCountWithSlowStartAndCapture(t *testing.T) {
 	}
 }
 
-func TestRecordStopWritesElapsedSlots(t *testing.T) {
+func TestRecordCancelWritesNothingAfterStop(t *testing.T) {
 	h := newHarness(t)
 	sel := rec(0)
 	sel.Video.FPS = 50
@@ -412,19 +412,22 @@ func TestRecordStopWritesElapsedSlots(t *testing.T) {
 	start := recordOrder(h, sel)
 	h.src.EXPECT().Capture(mock.Anything, target).Return(frame, nil).Maybe()
 	var writes atomic.Int32
-	h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(context.Context, ports.Frame) error {
-		writes.Add(1)
+	var closed atomic.Bool
+	h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(ctx context.Context, _ ports.Frame) error {
+		require.NoError(t, ctx.Err(), "write after stop")
+		if writes.Add(1) == 4 {
+			cancel() // stop arrives while this frame is being written
+		}
 		return nil
 	}).NotBefore(start).Maybe()
-	h.vid.EXPECT().Close().Return(nil).Once()
+	h.vid.EXPECT().Close().RunAndReturn(func() error {
+		closed.Store(true)
+		return nil
+	}).Once()
 
-	stop := time.AfterFunc(200*time.Millisecond, cancel)
-	defer stop.Stop()
-	began := time.Now()
 	require.NoError(t, h.svc.Run(ctx, sel))
-	slots := int32(time.Since(began) * 50 / time.Second)
-	assert.GreaterOrEqual(t, writes.Load(), int32(10))
-	assert.LessOrEqual(t, slots-writes.Load(), int32(1), "elapsed slots must be written")
+	assert.Equal(t, int32(4), writes.Load(), "recording ends at the last frame written before the stop")
+	assert.True(t, closed.Load())
 }
 
 func TestRecordHugeDurationDoesNotOverflow(t *testing.T) {
