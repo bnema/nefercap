@@ -43,7 +43,7 @@ type Options struct {
 
 // Usage describes the command line.
 func Usage() string {
-	return `Usage: nefercap [command] [flags]
+	return fmt.Sprintf(`Usage: nefercap [command] [flags]
 
 Commands:
   gui         open the capture control panel (default)
@@ -56,10 +56,10 @@ Flags:
   -output NAME      output name (screenshot, record)
   -region X,Y,WxH   output-local logical region; default is the full output (screenshot, record)
   -file PATH        new file to write, required (screenshot, record)
-  -fps N            frames per second, 1..120 (record, default 30)
-  -size WxH         scaled video size, both even (record, default source size)
+  -fps N            frames per second, 1..%d (record, default %d)
+  -size WxH         scaled video size, both even, at most %d each (record, default source size)
   -duration D       recording length such as 30s; 0 records until interrupted (record)
-`
+`, ports.MaxFPS, DefaultFPS, ports.MaxDimension)
 }
 
 // Parse parses args (without the program name). Help requests print Usage to

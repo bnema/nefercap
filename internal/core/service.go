@@ -59,56 +59,121 @@ func (s *Service) screenshot(ctx context.Context, sel ports.Selection) error {
 }
 
 func (s *Service) record(ctx context.Context, sel ports.Selection) error {
-	runCtx := ctx
-	if sel.Duration > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, sel.Duration)
-		defer cancel()
-	}
-
-	frame, err := s.source.Capture(runCtx, sel.Target)
+	frame, err := s.source.Capture(ctx, sel.Target)
 	if err != nil {
 		return fmt.Errorf("capture first frame: %w", err)
 	}
 	if err := frame.Validate(); err != nil {
 		return fmt.Errorf("captured frame: %w", err)
 	}
-	if err := s.video.Start(runCtx, frame, sel.Path, sel.Video); err != nil {
-		// Nothing was recorded: discard instead of finalizing.
-		err = fmt.Errorf("start video: %w", err)
-		if abortErr := s.video.Abort(); abortErr != nil {
-			err = errors.Join(err, fmt.Errorf("abort video: %w", abortErr))
-		}
-		return err
+	if err := s.video.Start(ctx, frame, sel.Path, sel.Video); err != nil {
+		return s.abort(fmt.Errorf("start video: %w", err))
+	}
+	if err := s.video.Write(ctx, frame); err != nil {
+		// Nothing was recorded, even when the cause is cancellation: discard
+		// the file instead of finalizing an empty recording.
+		return s.abort(fmt.Errorf("write first frame: %w", err))
 	}
 
-	loopErr := s.recordLoop(runCtx, frame, sel)
-	// Graceful finalize on every exit after Start; the writer bounds it.
+	loopErr := s.recordLoop(ctx, frame, sel)
+	// Graceful finalize on every exit after the first frame; the writer bounds it.
 	if closeErr := s.video.Close(); closeErr != nil {
 		return errors.Join(loopErr, fmt.Errorf("finalize video: %w", closeErr))
 	}
 	return loopErr
 }
 
-// recordLoop writes the first frame, then one frame per tick. It returns nil
-// when the run context ends (duration elapsed or cancellation).
-func (s *Service) recordLoop(ctx context.Context, first ports.Frame, sel ports.Selection) error {
-	if err := s.video.Write(ctx, first); err != nil {
-		return writeResult(ctx, err)
+func (s *Service) abort(err error) error {
+	if abortErr := s.video.Abort(); abortErr != nil {
+		return errors.Join(err, fmt.Errorf("abort video: %w", abortErr))
 	}
-	ticker := time.NewTicker(time.Second / time.Duration(sel.Video.FPS))
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
+	return err
+}
+
+// stopWriteTimeout bounds the trailing duplicate writes made after a stop
+// request, which must not be interrupted by the cancellation itself.
+const stopWriteTimeout = 2 * time.Second
+
+// schedule maps elapsed time since the first frame to fixed-rate frame slots.
+// Slot n is due at n/fps. total is the slot count of a timed recording, or 0
+// when recording until cancellation.
+type schedule struct {
+	start time.Time
+	fps   int64
+	total int64
+}
+
+func newSchedule(start time.Time, sel ports.Selection) schedule {
+	sc := schedule{start: start, fps: int64(sel.Video.FPS)}
+	if sel.Duration > 0 {
+		// ceil(duration*fps) split into whole seconds and remainder so the
+		// arithmetic cannot overflow for any positive time.Duration.
+		secs, rem := int64(sel.Duration/time.Second), int64(sel.Duration%time.Second)
+		sc.total = secs*sc.fps + (rem*sc.fps+int64(time.Second)-1)/int64(time.Second)
+	}
+	return sc
+}
+
+// due returns the offset at which slot n starts.
+func (sc schedule) due(n int64) time.Duration {
+	q, r := n/sc.fps, n%sc.fps
+	return time.Duration(q)*time.Second + time.Duration(r)*time.Second/time.Duration(sc.fps)
+}
+
+// current returns the slot containing now, limited to the last slot of a
+// timed recording. past reports that a timed recording's window has ended.
+func (sc schedule) current() (slot int64, past bool) {
+	elapsed := time.Since(sc.start)
+	secs, rem := int64(elapsed/time.Second), int64(elapsed%time.Second)
+	slot = secs*sc.fps + rem*sc.fps/int64(time.Second)
+	if sc.total > 0 && slot >= sc.total {
+		return sc.total - 1, true
+	}
+	return slot, false
+}
+
+// recordLoop fills slots 1.. after the already written first frame. A slot
+// missed because Capture or Write ran long reuses the current frame, which is
+// still valid until the next Capture, so the encoded duration stays exact
+// even when wall time overruns. A timed recording ends after ceil(duration*fps)
+// frames; otherwise it ends when ctx is done.
+func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.Selection) error {
+	sc := newSchedule(time.Now(), sel)
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+	timer.Stop()
+
+	next := int64(1)
+	for sc.total == 0 || next < sc.total {
+		if wait := sc.due(next) - time.Since(sc.start); wait > 0 {
+			timer.Reset(wait)
+			select {
+			case <-ctx.Done():
+				return s.fillElapsed(ctx, frame, next, sc)
+			case <-timer.C:
+			}
+		} else if ctx.Err() != nil {
+			return s.fillElapsed(ctx, frame, next, sc)
 		}
-		if ctx.Err() != nil {
+
+		cur, past := sc.current()
+		cur = max(cur, next)
+		// Slots already missed repeat the frame before it is invalidated.
+		last := cur - 1
+		if past {
+			last = cur // window over: no capture for the final slot
+		}
+		for ; next <= last; next++ {
+			if err := s.video.Write(ctx, frame); err != nil {
+				return writeResult(ctx, err)
+			}
+		}
+		if past {
 			return nil
 		}
-		frame, err := s.source.Capture(ctx, sel.Target)
-		if err != nil {
+
+		var err error
+		if frame, err = s.source.Capture(ctx, sel.Target); err != nil {
 			if stopped(ctx, err) {
 				return nil
 			}
@@ -120,7 +185,26 @@ func (s *Service) recordLoop(ctx context.Context, first ports.Frame, sel ports.S
 		if err := s.video.Write(ctx, frame); err != nil {
 			return writeResult(ctx, err)
 		}
+		next++
 	}
+	return nil
+}
+
+// fillElapsed repeats the current frame for slots that began before the stop
+// request so the file covers the time actually recorded.
+func (s *Service) fillElapsed(ctx context.Context, frame ports.Frame, next int64, sc schedule) error {
+	cur, _ := sc.current()
+	if next > cur {
+		return nil
+	}
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopWriteTimeout)
+	defer cancel()
+	for ; next <= cur; next++ {
+		if err := s.video.Write(wctx, frame); err != nil {
+			return fmt.Errorf("write trailing frame: %w", err)
+		}
+	}
+	return nil
 }
 
 func writeResult(ctx context.Context, err error) error {
@@ -130,9 +214,29 @@ func writeResult(ctx context.Context, err error) error {
 	return fmt.Errorf("write frame: %w", err)
 }
 
-// stopped reports whether err is only the consequence of the run ending.
+// stopped reports whether the run is ending and err consists only of context
+// cancellation or deadline leaves. A failure joined with cancellation is real.
 func stopped(ctx context.Context, err error) bool {
-	return ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+	return ctx.Err() != nil && onlyContext(err)
+}
+
+func onlyContext(err error) bool {
+	switch e := err.(type) {
+	case nil:
+		return false
+	case interface{ Unwrap() []error }:
+		children := e.Unwrap()
+		for _, c := range children {
+			if !onlyContext(c) {
+				return false
+			}
+		}
+		return len(children) > 0
+	case interface{ Unwrap() error }:
+		return err == context.Canceled || err == context.DeadlineExceeded || onlyContext(e.Unwrap())
+	default:
+		return err == context.Canceled || err == context.DeadlineExceeded
+	}
 }
 
 func validateSelection(sel ports.Selection) error {

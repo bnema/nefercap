@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -210,38 +211,6 @@ func recordOrder(h harness, sel ports.Selection) (first *mock.Call) {
 	return s
 }
 
-func TestRecordDuration(t *testing.T) {
-	h := newHarness(t)
-	sel := rec(60 * time.Millisecond)
-	start := recordOrder(h, sel)
-	var closed atomic.Bool
-	var writes, inFlight atomic.Int32
-	h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
-		require.False(t, closed.Load(), "capture after close")
-		require.Equal(t, int32(1), inFlight.Add(1), "concurrent capture")
-		defer inFlight.Add(-1)
-		return frame, nil
-	}).Maybe()
-	w := h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(context.Context, ports.Frame) error {
-		require.False(t, closed.Load(), "write after close")
-		require.Equal(t, int32(1), inFlight.Add(1), "concurrent write")
-		defer inFlight.Add(-1)
-		writes.Add(1)
-		return nil
-	}).NotBefore(start)
-	w.Maybe()
-	h.vid.EXPECT().Close().RunAndReturn(func() error {
-		closed.Store(true)
-		return nil
-	}).Once()
-
-	began := time.Now()
-	require.NoError(t, h.svc.Run(context.Background(), sel))
-	assert.GreaterOrEqual(t, time.Since(began), 60*time.Millisecond)
-	assert.GreaterOrEqual(t, writes.Load(), int32(2))
-	assert.True(t, closed.Load())
-}
-
 func TestRecordFirstWriteCompletesBeforeTick(t *testing.T) {
 	// 1 fps: only the first frame is written in a short run.
 	h := newHarness(t)
@@ -287,7 +256,7 @@ func TestRecordCancelInterruptsBlockedCapture(t *testing.T) {
 	require.NoError(t, h.svc.Run(ctx, sel))
 }
 
-func TestRecordCancelDuringWrite(t *testing.T) {
+func TestRecordCancelDuringFirstWriteAborts(t *testing.T) {
 	h := newHarness(t)
 	sel := rec(0)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -296,7 +265,177 @@ func TestRecordCancelDuringWrite(t *testing.T) {
 		cancel()
 		return ctx.Err()
 	}).Once().NotBefore(start)
-	h.vid.EXPECT().Close().Return(nil).Once().NotBefore(w)
+	h.vid.EXPECT().Abort().Return(nil).Once().NotBefore(w)
+	err := h.svc.Run(ctx, sel)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRecordCancelDuringLaterWrite(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	start := recordOrder(h, sel)
+	first := h.vid.EXPECT().Write(mock.Anything, frame).Return(nil).Once().NotBefore(start)
+	h.src.EXPECT().Capture(mock.Anything, target).Return(frame, nil).Once()
+	h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(ctx context.Context, _ ports.Frame) error {
+		cancel()
+		return ctx.Err()
+	}).Once().NotBefore(first)
+	h.vid.EXPECT().Close().Return(nil).Once()
+	require.NoError(t, h.svc.Run(ctx, sel))
+}
+
+func TestRecordJoinedFailureIsNotSuppressedByCancellation(t *testing.T) {
+	boom := errors.New("boom")
+	joins := map[string]error{
+		"join":    errors.Join(context.Canceled, boom),
+		"wrapped": fmt.Errorf("x: %w", errors.Join(boom, fmt.Errorf("y: %w", context.Canceled))),
+		"multi":   fmt.Errorf("%w; %w", context.Canceled, boom),
+	}
+	for name, werr := range joins {
+		t.Run("write/"+name, func(t *testing.T) {
+			h := newHarness(t)
+			sel := rec(0)
+			ctx, cancel := context.WithCancel(context.Background())
+			start := recordOrder(h, sel)
+			first := h.vid.EXPECT().Write(mock.Anything, frame).Return(nil).Once().NotBefore(start)
+			h.src.EXPECT().Capture(mock.Anything, target).Return(frame, nil).Once()
+			h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(context.Context, ports.Frame) error {
+				cancel()
+				return werr
+			}).Once().NotBefore(first)
+			h.vid.EXPECT().Close().Return(nil).Once()
+			require.ErrorIs(t, h.svc.Run(ctx, sel), boom)
+		})
+		t.Run("capture/"+name, func(t *testing.T) {
+			h := newHarness(t)
+			sel := rec(0)
+			ctx, cancel := context.WithCancel(context.Background())
+			start := recordOrder(h, sel)
+			h.vid.EXPECT().Write(mock.Anything, frame).Return(nil).Once().NotBefore(start)
+			h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
+				cancel()
+				return ports.Frame{}, werr
+			}).Once()
+			h.vid.EXPECT().Close().Return(nil).Once()
+			require.ErrorIs(t, h.svc.Run(ctx, sel), boom)
+		})
+	}
+	t.Run("wrapped cancellation alone is a clean stop", func(t *testing.T) {
+		h := newHarness(t)
+		sel := rec(0)
+		ctx, cancel := context.WithCancel(context.Background())
+		start := recordOrder(h, sel)
+		h.vid.EXPECT().Write(mock.Anything, frame).Return(nil).Once().NotBefore(start)
+		h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
+			cancel()
+			return ports.Frame{}, fmt.Errorf("wayland: %w", errors.Join(context.Canceled, context.Canceled))
+		}).Once()
+		h.vid.EXPECT().Close().Return(nil).Once()
+		require.NoError(t, h.svc.Run(ctx, sel))
+	})
+}
+
+// slotRecorder tracks the most recently captured frame: only it may be written.
+type slotRecorder struct {
+	current  *byte
+	captures atomic.Int32
+	writes   atomic.Int32
+}
+
+func newFrame() ports.Frame {
+	f := frame
+	f.Pixels = make([]byte, len(frame.Pixels))
+	return f
+}
+
+func TestRecordExactFrameCountWithSlowStartAndCapture(t *testing.T) {
+	cases := []struct {
+		name     string
+		duration time.Duration
+		fps      int
+		want     int32
+	}{
+		{"slow capture 60fps", 300 * time.Millisecond, 60, 18},
+		{"fractional slot rounds up", 25 * time.Millisecond, 60, 2},
+		{"single slot", 10 * time.Millisecond, 30, 1},
+		{"fast", 100 * time.Millisecond, 30, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			sel := rec(tc.duration)
+			sel.Video.FPS = tc.fps
+			var r slotRecorder
+			first := newFrame()
+			r.current = &first.Pixels[0]
+			var closed atomic.Bool
+			h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
+				r.captures.Add(1)
+				f := first
+				if r.captures.Load() > 1 {
+					time.Sleep(25 * time.Millisecond)
+					f = newFrame()
+				}
+				r.current = &f.Pixels[0]
+				return f, nil
+			}).Maybe()
+			s := h.vid.EXPECT().Start(mock.Anything, mock.Anything, sel.Path, sel.Video).RunAndReturn(func(context.Context, ports.Frame, string, ports.VideoSettings) error {
+				time.Sleep(100 * time.Millisecond) // must not count against the duration
+				return nil
+			}).Once()
+			h.vid.EXPECT().Write(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, f ports.Frame) error {
+				require.False(t, closed.Load(), "write after close")
+				require.Same(t, r.current, &f.Pixels[0], "stale or unknown frame written")
+				r.writes.Add(1)
+				return nil
+			}).NotBefore(s).Maybe()
+			h.vid.EXPECT().Close().RunAndReturn(func() error {
+				closed.Store(true)
+				return nil
+			}).Once()
+
+			began := time.Now()
+			require.NoError(t, h.svc.Run(context.Background(), sel))
+			assert.Equal(t, tc.want, r.writes.Load())
+			assert.LessOrEqual(t, r.captures.Load(), tc.want)
+			assert.GreaterOrEqual(t, time.Since(began), 100*time.Millisecond+tc.duration-time.Second/time.Duration(tc.fps))
+		})
+	}
+}
+
+func TestRecordStopWritesElapsedSlots(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(0)
+	sel.Video.FPS = 50
+	ctx, cancel := context.WithCancel(context.Background())
+	start := recordOrder(h, sel)
+	h.src.EXPECT().Capture(mock.Anything, target).Return(frame, nil).Maybe()
+	var writes atomic.Int32
+	h.vid.EXPECT().Write(mock.Anything, frame).RunAndReturn(func(context.Context, ports.Frame) error {
+		writes.Add(1)
+		return nil
+	}).NotBefore(start).Maybe()
+	h.vid.EXPECT().Close().Return(nil).Once()
+
+	stop := time.AfterFunc(200*time.Millisecond, cancel)
+	defer stop.Stop()
+	began := time.Now()
+	require.NoError(t, h.svc.Run(ctx, sel))
+	slots := int32(time.Since(began) * 50 / time.Second)
+	assert.GreaterOrEqual(t, writes.Load(), int32(10))
+	assert.LessOrEqual(t, slots-writes.Load(), int32(1), "elapsed slots must be written")
+}
+
+func TestRecordHugeDurationDoesNotOverflow(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(time.Duration(1<<63 - 1))
+	ctx, cancel := context.WithCancel(context.Background())
+	start := recordOrder(h, sel)
+	h.src.EXPECT().Capture(mock.Anything, target).Return(frame, nil).Maybe()
+	h.vid.EXPECT().Write(mock.Anything, frame).Return(nil).NotBefore(start).Maybe()
+	h.vid.EXPECT().Close().Return(nil).Once()
+	time.AfterFunc(40*time.Millisecond, cancel)
 	require.NoError(t, h.svc.Run(ctx, sel))
 }
 
@@ -349,7 +488,7 @@ func TestRecordRuntimeFailures(t *testing.T) {
 		sel := rec(0)
 		start := recordOrder(h, sel)
 		w := h.vid.EXPECT().Write(mock.Anything, frame).Return(boom).Once().NotBefore(start)
-		h.vid.EXPECT().Close().Return(closeErr).Once().NotBefore(w)
+		h.vid.EXPECT().Abort().Return(closeErr).Once().NotBefore(w)
 		err := h.svc.Run(context.Background(), sel)
 		require.ErrorIs(t, err, boom)
 		require.ErrorIs(t, err, closeErr)
