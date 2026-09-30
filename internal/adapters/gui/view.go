@@ -26,7 +26,7 @@ var (
 
 	fileField     = newField("file", "file", "path of the new capture file")
 	regionField   = newField("region", "region", "X,Y,WxH (empty = full output)")
-	fpsField      = newField("fps", "fps", "1-240")
+	fpsField      = newField("fps", "fps", fpsPlaceholder)
 	sizeField     = newField("size", "resolution", "WxH (empty = source size)")
 	durationField = newField("duration", "duration", "seconds or 1m30s; 0 = until Ctrl+C")
 )
@@ -72,7 +72,27 @@ func (f *field) show(parent nefergui.Node, value *string) (changed, submitted bo
 // alone; events mutate it while the frame is built.
 func view(f *nefergui.Frame, m *model) {
 	root := f.Root(rootOpts...)
+	submit := false
 	root.Heading("NeferCap", titleOpts...)
+
+	text, submittable, ok := m.status()
+	if ok {
+		root.Text(text, statusGood...)
+	} else {
+		root.Text(text, statusBad...)
+	}
+
+	actions := root.Row(actionsOpts...)
+	capture := captureOff
+	if submittable {
+		capture = captureOn
+	}
+	if actions.Button("Capture", capture...).Activated() && submittable {
+		submit = true
+	}
+	if actions.Button("Close", closeOpts...).Activated() {
+		m.dismiss()
+	}
 
 	root.Text("output", outputTitle...)
 	outs := root.Column(outputsGroup...)
@@ -87,7 +107,6 @@ func view(f *nefergui.Frame, m *model) {
 	modes.Radio("record", modeRecord, &m.mode, recOpts...)
 	m.modeChanged()
 
-	submit := false
 	root.Text("target", targetTitle...)
 	target := root.Column(targetGroup...)
 	changed, entered := fileField.show(target, &m.path)
@@ -112,24 +131,6 @@ func view(f *nefergui.Frame, m *model) {
 
 	root.Text(warning, warningOpts...)
 
-	text, submittable, ok := m.status()
-	if ok {
-		root.Text(text, statusGood...)
-	} else {
-		root.Text(text, statusBad...)
-	}
-
-	actions := root.Row(actionsOpts...)
-	capture := captureOff
-	if submittable {
-		capture = captureOn
-	}
-	if actions.Button("Capture", capture...).Activated() && submittable {
-		submit = true
-	}
-	if actions.Button("Close", closeOpts...).Activated() {
-		m.dismiss()
-	}
 	if submit {
 		m.submit()
 	}

@@ -2,28 +2,31 @@ package gui
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bnema/nefercap/internal/ports"
 )
 
-// Form limits. Bounds are generous but keep every value far from int overflow.
-const (
-	maxDim      = 16384
-	maxFPS      = 240
-	maxDuration = 24 * time.Hour
-)
+// Form limits. Dimension, frame-size and fps bounds come from ports so the
+// panel cannot accept what the capture pipeline rejects.
+const maxDuration = 24 * time.Hour
 
-// Validation messages are static so status rendering never allocates.
+// Validation messages are built once, so status rendering never allocates.
 var (
 	errOutput   = errors.New("! select an output")
 	errMode     = errors.New("! select screenshot or record")
 	errPath     = errors.New("! file must name a path (not empty, not a directory)")
-	errRegion   = errors.New("! region must be X,Y,WxH with X,Y >= 0 and W,H > 0, or empty")
-	errFPS      = errors.New("! fps must be a whole number from 1 to 240")
-	errSize     = errors.New("! size must be WxH with both > 0, or empty for source size")
+	errRegion   = fmt.Errorf("! region must be X,Y,WxH with X,Y >= 0, W,H > 0 and X+W, Y+H <= %d, or empty", ports.MaxDimension)
+	errFPS      = fmt.Errorf("! fps must be a whole number from 1 to %d", ports.MaxFPS)
+	errSize     = fmt.Errorf("! resolution must be WxH with both from 1 to %d, or empty for source size", ports.MaxDimension)
+	errSizeOdd  = errors.New("! resolution width and height must be even (video encoding)")
+	errSizeSize = fmt.Errorf("! resolution is too large: at most %d MiB per frame", ports.MaxFrameBytes>>20)
 	errDuration = errors.New("! duration must be seconds or e.g. 1m30s (max 24h); 0 = until Ctrl+C")
+
+	fpsPlaceholder = "1-" + strconv.Itoa(ports.MaxFPS)
 )
 
 // parse validates the form and, on success, stores the result in m.sel. It
@@ -50,7 +53,7 @@ func (m *model) parse() error {
 		sel.Mode = ports.Screenshot
 	case modeRecord:
 		sel.Mode = ports.Record
-		fps, ok := parseUint(m.fps, maxFPS)
+		fps, ok := parseUint(m.fps, ports.MaxFPS)
 		if !ok || fps < 1 {
 			return errFPS
 		}
@@ -58,7 +61,10 @@ func (m *model) parse() error {
 		if !ok {
 			return errSize
 		}
-		dur, ok := parseDuration(m.duration)
+		if err := checkVideoSize(w, h); err != nil {
+			return err
+		}
+		dur, ok := m.parsedDuration()
 		if !ok {
 			return errDuration
 		}
@@ -69,6 +75,35 @@ func (m *model) parse() error {
 	}
 	m.sel = sel
 	return nil
+}
+
+// checkVideoSize applies encoder rules to an explicit video resolution (zero
+// means source size). Region sizes are not checked: captured physical
+// dimensions can differ from the logical region by the output scale, so an odd
+// region does not imply odd video. If the source itself is odd, the user must
+// set an even resolution; the record note says so.
+func checkVideoSize(w, h int) error {
+	if w == 0 {
+		return nil
+	}
+	if w%2 != 0 || h%2 != 0 {
+		return errSizeOdd
+	}
+	if w > ports.MaxFrameBytes/ports.BytesPerPixel/h {
+		return errSizeSize
+	}
+	return nil
+}
+
+// parsedDuration parses m.duration, remembering the last input and result so
+// an unchanged (even invalid) field costs no allocation per frame.
+func (m *model) parsedDuration() (time.Duration, bool) {
+	if !m.durCached || m.durSrc != m.duration {
+		m.durSrc = m.duration
+		m.durVal, m.durOK = parseDuration(m.duration)
+		m.durCached = true
+	}
+	return m.durVal, m.durOK
 }
 
 // parseUint parses plain decimal digits no greater than limit.
@@ -92,6 +127,9 @@ func parseUint(s string, limit int) (int, bool) {
 }
 
 // parseRegion parses "X,Y,WxH". Empty means the full output (zero Region).
+// It is deliberately stricter than the coordinate bound alone: the far edges
+// X+W and Y+H must also stay within ports.MaxDimension. Whether the region fits
+// the chosen output is only known to the capture adapter.
 func parseRegion(s string) (ports.Region, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -105,10 +143,10 @@ func parseRegion(s string) (ports.Region, bool) {
 	if !ok {
 		return ports.Region{}, false
 	}
-	x, ok1 := parseUint(xs, maxDim)
-	y, ok2 := parseUint(ys, maxDim)
+	x, ok1 := parseUint(xs, ports.MaxDimension)
+	y, ok2 := parseUint(ys, ports.MaxDimension)
 	w, h, ok3 := parseSize(size)
-	if !ok1 || !ok2 || !ok3 || w == 0 {
+	if !ok1 || !ok2 || !ok3 || w == 0 || x+w > ports.MaxDimension || y+h > ports.MaxDimension {
 		return ports.Region{}, false
 	}
 	return ports.Region{X: x, Y: y, Width: w, Height: h}, true
@@ -124,8 +162,8 @@ func parseSize(s string) (w, h int, ok bool) {
 	if i < 0 {
 		return 0, 0, false
 	}
-	w, ok1 := parseUint(s[:i], maxDim)
-	h, ok2 := parseUint(s[i+1:], maxDim)
+	w, ok1 := parseUint(s[:i], ports.MaxDimension)
+	h, ok2 := parseUint(s[i+1:], ports.MaxDimension)
 	if !ok1 || !ok2 || w < 1 || h < 1 {
 		return 0, 0, false
 	}

@@ -30,8 +30,11 @@ func New() *Selector { return &Selector{} }
 
 // Select blocks until the user accepts a selection (true), closes the window
 // (false, nil) or ctx ends or the window system fails (error). The window is
-// gone before an accepted selection is returned, so it cannot appear in the
-// capture. Select must be called from one goroutine at a time.
+// destroyed by the panel's own Wayland session before an accepted selection is
+// returned. The compositor may still process that teardown after Select
+// returns, so a caller that must not capture the panel should confirm through
+// a fresh capture connection before capturing. Select must be called from one
+// goroutine at a time.
 func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Selection, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.Selection{}, false, err
@@ -59,22 +62,23 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	return m.result(ctx, runErr)
 }
 
-// result maps Run's outcome. A Canceled error caused by our own accept or
-// dismiss is not a failure, but any other error (including one joined with it,
-// such as a surface Close failure) is reported and rejects the selection. When
-// the parent context ended, its error is always reported and nothing is
-// accepted.
+// result maps Run's outcome. The parent context is checked first: if it has
+// ended, nothing is accepted and its error is returned, joined with any real
+// Run error. Otherwise a Canceled error caused by our own accept or dismiss is
+// not a failure, but any other error (including one joined with it, such as a
+// surface Close failure) is reported and rejects the selection.
 func (m *model) result(parent context.Context, runErr error) (ports.Selection, bool, error) {
+	if perr := parent.Err(); perr != nil {
+		if rest := dropErrors(runErr, context.Canceled, perr); rest != nil {
+			return ports.Selection{}, false, errors.Join(perr, rest)
+		}
+		return ports.Selection{}, false, perr
+	}
+	if m.accepted || m.closed {
+		runErr = dropErrors(runErr, context.Canceled)
+	}
 	if runErr != nil {
-		if perr := parent.Err(); perr != nil {
-			return ports.Selection{}, false, errors.Join(perr, dropCanceled(runErr))
-		}
-		if m.accepted || m.closed {
-			runErr = dropCanceled(runErr)
-		}
-		if runErr != nil {
-			return ports.Selection{}, false, runErr
-		}
+		return ports.Selection{}, false, runErr
 	}
 	if m.accepted {
 		return m.sel, true, nil
@@ -82,25 +86,33 @@ func (m *model) result(parent context.Context, runErr error) (ports.Selection, b
 	return ports.Selection{}, false, nil
 }
 
-// dropCanceled removes bare context.Canceled leaves from err and joined errors.
-func dropCanceled(err error) error {
-	if err == nil || err == context.Canceled {
+// dropErrors removes leaves equal to any target from err and from joined
+// errors, keeping everything else. It returns nil if nothing real remains.
+func dropErrors(err error, targets ...error) error {
+	if err == nil {
 		return nil
 	}
-	j, ok := err.(interface{ Unwrap() []error })
-	if !ok {
-		return err
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		var keep []error
+		for _, e := range j.Unwrap() {
+			if e = dropErrors(e, targets...); e != nil {
+				keep = append(keep, e)
+			}
+		}
+		switch len(keep) {
+		case 0:
+			return nil
+		case 1:
+			return keep[0]
+		}
+		return errors.Join(keep...)
 	}
-	var keep []error
-	for _, e := range j.Unwrap() {
-		if e = dropCanceled(e); e != nil {
-			keep = append(keep, e)
+	for _, t := range targets {
+		if err == t {
+			return nil
 		}
 	}
-	if len(keep) == 1 {
-		return keep[0]
-	}
-	return errors.Join(keep...)
+	return err
 }
 
 // writeStyleSheet stores the embedded stylesheet in a private temporary file

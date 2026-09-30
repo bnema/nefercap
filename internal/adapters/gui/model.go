@@ -2,7 +2,10 @@ package gui
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,8 +26,16 @@ const (
 	// support is limited to what the capture adapter offers.
 	warning = "note: regular window, not a layer-shell overlay; it opens on the monitor " +
 		"of the current workspace. Off-screen sources and the cursor cannot be captured."
-	recordNote  = "duration 0 records until Ctrl+C in the terminal."
+	recordNote = "duration 0 records until Ctrl+C in the terminal that started nefercap. " +
+		"Video width and height must be even: set an even resolution if the source is odd."
+
+	noticeStat  = "! cannot check the file path"
+	noticeDir   = "! folder does not exist"
 	stampLayout = "20060102-150405"
+
+	// A finite default lets a desktop launch stop without a terminal; enter 0
+	// to record until interrupted.
+	defaultDuration = "10"
 )
 
 // outputChoice is one precomputed radio entry.
@@ -49,6 +60,12 @@ type model struct {
 	// notice is a submit-time problem shown until the path or mode changes.
 	notice string
 
+	// Last duration parse, so an unchanged field is not re-parsed per frame.
+	durSrc    string
+	durVal    time.Duration
+	durOK     bool
+	durCached bool
+
 	sel      ports.Selection
 	accepted bool
 	closed   bool
@@ -68,7 +85,7 @@ func newModel(outputs []ports.Output, now time.Time) (*model, error) {
 		defaultShot: "nefercap-" + stamp + ".png",
 		defaultRec:  "nefercap-" + stamp + ".mp4",
 		fps:         "30",
-		duration:    "0",
+		duration:    defaultDuration,
 	}
 	m.path = m.defaultShot
 	var b strings.Builder
@@ -161,13 +178,30 @@ func (m *model) submit() {
 	if err := m.parse(); err != nil {
 		return
 	}
-	if _, err := os.Lstat(m.sel.Path); err == nil {
-		m.notice = noticeExists
+	if n := checkPath(m.sel.Path); n != "" {
+		m.notice = n
 		return
 	}
 	m.notice = ""
 	m.accepted = true
 	m.stop()
+}
+
+// checkPath returns a static notice when path cannot be created, or "". The
+// folder must exist; write permission is left to the capture adapter.
+func checkPath(path string) string {
+	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+		return noticeDir
+	}
+	_, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		return noticeExists
+	case errors.Is(err, fs.ErrNotExist):
+		return ""
+	default:
+		return noticeStat
+	}
 }
 
 // dismiss closes the window without a selection.

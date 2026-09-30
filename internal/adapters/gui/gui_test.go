@@ -25,7 +25,7 @@ func TestNewModelLabelsAndDefaults(t *testing.T) {
 	assert.Equal(t, "nefercap-20260102-030405.png", m.defaultShot)
 	assert.Equal(t, "nefercap-20260102-030405.mp4", m.defaultRec)
 	assert.Equal(t, "30", m.fps)
-	assert.Equal(t, "0", m.duration)
+	assert.Equal(t, "10", m.duration)
 	keys := map[string]bool{}
 	for _, o := range m.outputs {
 		assert.False(t, keys[o.key])
@@ -161,6 +161,7 @@ func TestResult(t *testing.T) {
 		{name: "setup failure", parent: context.Background(), runErr: closeErr, wantErr: closeErr},
 		{name: "unexplained cancel", parent: context.Background(), runErr: context.Canceled, wantErr: context.Canceled},
 		{name: "parent canceled", parent: canceledParent, runErr: context.Canceled, wantErr: context.Canceled},
+		{name: "parent canceled nil run", parent: canceledParent, wantErr: context.Canceled},
 		{name: "parent canceled after accept", parent: canceledParent, accepted: true, runErr: context.Canceled, wantErr: context.Canceled},
 		{name: "parent canceled with close failure", parent: canceledParent, accepted: true, runErr: errors.Join(context.Canceled, closeErr), wantErr: closeErr},
 	}
@@ -189,16 +190,59 @@ func TestResult(t *testing.T) {
 	}
 }
 
-func TestDropCanceled(t *testing.T) {
+// A parent deadline or cancel with only cancellation noise from Run reports
+// the parent's own error bare, so callers can exit cleanly on it.
+func TestResultReturnsBareParentError(t *testing.T) {
+	m := newTestModel(t)
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := m.result(parent, errors.Join(context.Canceled, context.Canceled))
+	assert.True(t, err == context.Canceled, "bare canceled error")
+
+	deadline, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer stop()
+	_, _, err = m.result(deadline, context.DeadlineExceeded)
+	assert.True(t, err == context.DeadlineExceeded, "bare deadline error")
+}
+
+func TestDropErrors(t *testing.T) {
 	real := errors.New("real")
-	assert.NoError(t, dropCanceled(nil))
-	assert.NoError(t, dropCanceled(context.Canceled))
-	assert.NoError(t, dropCanceled(errors.Join(context.Canceled, context.Canceled)))
-	assert.Same(t, real, dropCanceled(errors.Join(context.Canceled, real)))
+	assert.NoError(t, dropErrors(nil, context.Canceled))
+	assert.NoError(t, dropErrors(context.Canceled, context.Canceled))
+	assert.NoError(t, dropErrors(errors.Join(context.Canceled, context.Canceled), context.Canceled))
+	assert.Same(t, real, dropErrors(errors.Join(context.Canceled, real), context.Canceled))
 	wrapped := fmt.Errorf("wrapped: %w", context.Canceled)
-	assert.Equal(t, wrapped, dropCanceled(wrapped), "wrapped cancellation is not ours")
-	both := dropCanceled(errors.Join(real, errors.New("second")))
+	assert.Equal(t, wrapped, dropErrors(wrapped, context.Canceled), "wrapped cancellation is not ours")
+	both := dropErrors(errors.Join(real, errors.New("second")), context.Canceled)
 	assert.ErrorIs(t, both, real)
+	assert.NoError(t, dropErrors(errors.Join(context.Canceled, context.DeadlineExceeded), context.Canceled, context.DeadlineExceeded))
+}
+
+func TestCheckPath(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "taken.png")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	assert.Empty(t, checkPath(filepath.Join(dir, "new.png")))
+	assert.Empty(t, checkPath(filepath.Join(dir, "new.mp4")), "extension does not dictate format")
+	assert.Equal(t, noticeExists, checkPath(file))
+	assert.Equal(t, noticeDir, checkPath(filepath.Join(dir, "missing", "new.png")))
+	assert.Equal(t, noticeDir, checkPath(filepath.Join(file, "new.png")), "parent is a file")
+	assert.Empty(t, checkPath("relative-new-name.png"))
+
+	link := filepath.Join(dir, "dangling.png")
+	require.NoError(t, os.Symlink(filepath.Join(dir, "nowhere"), link))
+	assert.Equal(t, noticeExists, checkPath(link), "dangling symlink is not overwritten")
+
+	// A path component that is a regular file yields ENOTDIR, not ErrNotExist.
+	assert.Equal(t, noticeDir, checkPath(filepath.Join(file, "x", "y.png")))
+}
+
+func TestRecordWithImageExtensionAccepted(t *testing.T) {
+	m := newTestModel(t)
+	m.mode = modeRecord
+	m.path = filepath.Join(t.TempDir(), "clip.png")
+	require.NoError(t, m.parse())
+	assert.Equal(t, ports.Record, m.sel.Mode)
 }
 
 func TestWriteStyleSheet(t *testing.T) {
@@ -218,6 +262,11 @@ func TestWriteStyleSheet(t *testing.T) {
 
 func TestStyleSheetUsesMonospace(t *testing.T) {
 	assert.Contains(t, styleSheet, "monospace")
+}
+
+func TestStyleSheetScrollsRootAndOmitsDeadRules(t *testing.T) {
+	assert.Contains(t, styleSheet, "overflow-y: auto")
+	assert.NotContains(t, styleSheet, "separator")
 }
 
 func TestWriteStyleSheetFailure(t *testing.T) {
