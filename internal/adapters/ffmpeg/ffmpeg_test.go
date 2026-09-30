@@ -58,7 +58,6 @@ func helperWriter(t *testing.T, mode string) *Writer {
 	t.Setenv(helperEnv, mode)
 	w := NewWithBinary(os.Args[0])
 	w.closeTimeout = 300 * time.Millisecond
-	w.abortTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { _ = w.Abort() })
 	return w
 }
@@ -173,8 +172,8 @@ func TestStartRefusesExistingPath(t *testing.T) {
 	}
 	w := helperWriter(t, "drain")
 	err := w.Start(context.Background(), newFrame(4, 4, 16, 0), path, settings())
-	if !errors.Is(err, ports.ErrPathExists) {
-		t.Fatalf("got %v, want ErrPathExists", err)
+	if !errors.Is(err, ports.ErrPathExists) || !errors.Is(err, os.ErrExist) {
+		t.Fatalf("got %v, want ErrPathExists and fs.ErrExist", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != "keep" {
 		t.Fatalf("existing file changed: %q", got)
@@ -482,7 +481,7 @@ func TestNeverStartedTerminalCallsAreNoOps(t *testing.T) {
 	}
 }
 
-func TestWriteAfterCloseDoesNotLeakWatchers(t *testing.T) {
+func TestWatcherRegisteredOncePerContext(t *testing.T) {
 	w := helperWriter(t, "drain")
 	w.closeTimeout = 10 * time.Second
 	f := newFrame(4, 4, 16, 0)
@@ -503,6 +502,156 @@ func TestWriteAfterCloseDoesNotLeakWatchers(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancel() // after Close: must be harmless
+	if err := w.Write(ctx, f); !errors.Is(err, ports.ErrClosed) {
+		t.Fatalf("Write after Close: %v, want ErrClosed", err)
+	}
+	if w.writeGen != 1 {
+		t.Fatal("Write after Close registered a watcher")
+	}
+}
+
+func TestWriteContextAlternation(t *testing.T) {
+	w := helperWriter(t, "hang")
+	f := newFrame(64, 64, 256, 0) // 16 KiB: one frame fits the pipe, many do not
+	session, cancelSession := context.WithCancel(context.Background())
+	defer cancelSession()
+	if err := w.Start(session, f, filepath.Join(t.TempDir(), "v.mp4"), settings()); err != nil {
+		t.Fatal(err)
+	}
+	ctxA, cancelA := context.WithCancel(context.Background())
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+	if err := w.Write(ctxA, f); err != nil {
+		t.Fatal(err)
+	}
+	res := make(chan error, 1)
+	go func() { // fill the pipe until a Write blocks on the hung encoder
+		for {
+			if err := w.Write(ctxB, f); err != nil {
+				res <- err
+				return
+			}
+		}
+	}()
+	time.Sleep(300 * time.Millisecond)
+	cancelA() // an earlier context must not interrupt B's blocked Write
+	select {
+	case err := <-res:
+		t.Fatalf("cancelling A interrupted B: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if w.cause.Load() != nil {
+		t.Fatal("cancelling A poisoned the writer")
+	}
+	cancelSession() // the Start context is the recording session and does interrupt
+	select {
+	case err := <-res:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v, want Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("session cancel did not interrupt B")
+	}
+}
+
+func TestCancelCauseNormalizedToContextErr(t *testing.T) {
+	custom := errors.New("custom cause")
+	f := newFrame(1024, 1024, 4096, 0)
+	for _, where := range []string{"start", "write"} {
+		t.Run(where, func(t *testing.T) {
+			w := helperWriter(t, "hang")
+			cause, cancel := context.WithCancelCause(context.Background())
+			startCtx, writeCtx := context.Background(), context.Background()
+			if where == "start" {
+				startCtx = cause
+			} else {
+				writeCtx = cause
+			}
+			if err := w.Start(startCtx, f, filepath.Join(t.TempDir(), "v.mp4"), settings()); err != nil {
+				t.Fatal(err)
+			}
+			res := make(chan error, 1)
+			go func() { res <- w.Write(writeCtx, f) }()
+			time.Sleep(200 * time.Millisecond)
+			cancel(custom)
+			select {
+			case err := <-res:
+				if !errors.Is(err, context.Canceled) || errors.Is(err, custom) {
+					t.Fatalf("got %v, want context.Canceled without the custom cause", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("cancel did not interrupt Write")
+			}
+			// The sticky retry keeps the frozen-contract error.
+			if err := w.Write(context.Background(), f); !errors.Is(err, context.Canceled) || errors.Is(err, custom) {
+				t.Fatalf("retry: got %v", err)
+			}
+		})
+	}
+}
+
+func TestAbortDiscardsHealthyRecording(t *testing.T) {
+	w := helperWriter(t, "drain")
+	path := filepath.Join(t.TempDir(), "v.mp4")
+	f := newFrame(4, 4, 16, 0)
+	if err := w.Start(context.Background(), f, path, settings()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := w.Write(context.Background(), f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pid := w.cmd.Process.Pid
+	if err := w.Abort(); err != nil {
+		t.Fatalf("Abort = %v, want nil", err)
+	}
+	if !gone(pid) {
+		t.Fatal("encoder not reaped")
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Abort kept the recording: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close after Abort = %v", err)
+	}
+}
+
+func TestTerminalCleanupSparesReplacementFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(*Writer) error
+	}{
+		{"Abort", func(w *Writer) error { return w.Abort() }},
+		{"Close killing a stuck encoder", func(w *Writer) error { _ = w.Close(); return nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := helperWriter(t, "slowclose")
+			dir := t.TempDir()
+			path := filepath.Join(dir, "v.mp4")
+			f := newFrame(4, 4, 16, 0)
+			if err := w.Start(context.Background(), f, path, settings()); err != nil {
+				t.Fatal(err)
+			}
+			pid := w.cmd.Process.Pid
+			moved := filepath.Join(dir, "moved.mp4")
+			if err := os.Rename(path, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("user data"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.end(w); err != nil {
+				t.Fatal(err)
+			}
+			if !gone(pid) {
+				t.Fatal("encoder not reaped")
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != "user data" {
+				t.Fatalf("replacement was removed or changed: %q, %v", got, err)
+			}
+		})
+	}
 }
 
 func TestRealFFmpeg(t *testing.T) {
@@ -705,7 +854,7 @@ func TestWriteRowsShortWrite(t *testing.T) {
 		calls int
 	}{"packed": {packed, 1}, "rows": {padded, 1}} {
 		t.Run(name, func(t *testing.T) {
-			m := NewMockWriter(t)
+			m := NewMockIOWriter(t)
 			m.EXPECT().Write(mock.Anything).Return(3, nil).Times(tc.calls)
 			if err := writeRows(m, tc.f); !errors.Is(err, io.ErrShortWrite) {
 				t.Fatalf("got %v, want io.ErrShortWrite", err)
@@ -714,7 +863,7 @@ func TestWriteRowsShortWrite(t *testing.T) {
 	}
 	t.Run("error passes through", func(t *testing.T) {
 		boom := errors.New("boom")
-		m := NewMockWriter(t)
+		m := NewMockIOWriter(t)
 		m.EXPECT().Write(mock.Anything).Return(0, boom).Once()
 		if err := writeRows(m, padded); !errors.Is(err, boom) {
 			t.Fatalf("got %v", err)

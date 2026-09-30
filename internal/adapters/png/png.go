@@ -9,9 +9,8 @@ import (
 	"image"
 	stdpng "image/png"
 	"io"
-	"io/fs"
-	"os"
 
+	"github.com/bnema/nefercap/internal/adapters/capturefile"
 	"github.com/bnema/nefercap/internal/ports"
 )
 
@@ -41,14 +40,11 @@ func (*Writer) Save(ctx context.Context, f ports.Frame, path string) (err error)
 	if path == "" {
 		return errors.New("png: empty path")
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, res, err := capturefile.Create(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("%w: %s", ports.ErrPathExists, path)
-		}
-		return fmt.Errorf("png: create output: %w", err)
+		return fmt.Errorf("png: %w", err)
 	}
-	// We created the file exclusively, so we own it and may remove it.
+	// We created the file exclusively, so we own it; a replacement is not ours.
 	defer func() {
 		if err == nil {
 			if cerr := file.Close(); cerr != nil {
@@ -58,8 +54,8 @@ func (*Writer) Save(ctx context.Context, f ports.Frame, path string) (err error)
 			_ = file.Close()
 		}
 		if err != nil {
-			if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-				err = errors.Join(err, fmt.Errorf("png: remove partial output: %w", rerr))
+			if rerr := res.Remove(); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("png: %w", rerr))
 			}
 		}
 	}()
@@ -101,7 +97,6 @@ func toRGBA(ctx context.Context, f ports.Frame) (*image.RGBA, error) {
 		}
 		src := f.Row(y)
 		dst := img.Pix[y*rowLen : (y+1)*rowLen]
-		dst = dst[:len(src)]
 		for x := 0; x+3 < len(src); x += 4 {
 			dst[x] = src[x+2]
 			dst[x+1] = src[x+1]

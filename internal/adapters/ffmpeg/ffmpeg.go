@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
@@ -25,15 +24,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bnema/nefercap/internal/adapters/capturefile"
 	"github.com/bnema/nefercap/internal/ports"
 )
 
 const (
 	defaultBinary = "ffmpeg"
 	// closeTimeout bounds how long Close waits for the encoder to drain after
-	// EOF before killing it; abortTimeout does the same for Abort.
+	// EOF before killing it.
 	closeTimeout = 15 * time.Second
-	abortTimeout = 3 * time.Second
 	// killTimeout bounds the wait for the reaper after a kill.
 	killTimeout = 5 * time.Second
 	// exitProbe bounds how long a failed pipe write waits for the exit status.
@@ -70,7 +69,6 @@ type failure struct {
 type Writer struct {
 	binary       string
 	closeTimeout time.Duration
-	abortTimeout time.Duration
 
 	state atomic.Int32
 	mu    sync.Mutex // serializes state transitions
@@ -78,7 +76,7 @@ type Writer struct {
 	// Set by Start before state becomes running; read-only afterwards.
 	cmd      *exec.Cmd
 	stdin    *os.File
-	path     string
+	res      *capturefile.Reservation
 	width    int
 	height   int
 	format   ports.PixelFormat
@@ -114,7 +112,6 @@ func NewWithBinary(binary string) *Writer {
 	return &Writer{
 		binary:       binary,
 		closeTimeout: closeTimeout,
-		abortTimeout: abortTimeout,
 		abortCh:      make(chan struct{}),
 		termDone:     make(chan struct{}),
 	}
@@ -194,20 +191,17 @@ func (w *Writer) Start(ctx context.Context, first ports.Frame, path string, s po
 	if err != nil {
 		return fmt.Errorf("ffmpeg: %w", err)
 	}
-	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	out, res, err := capturefile.Create(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("%w: %s", ports.ErrPathExists, path)
-		}
-		return fmt.Errorf("ffmpeg: create output: %w", err)
+		return fmt.Errorf("ffmpeg: %w", err)
 	}
-	// From here we own path (created exclusively) and remove it on failure.
+	// From here we own the created file and remove it (not a replacement) on failure.
 	fail := func(err error, closers ...*os.File) error {
 		for _, c := range closers {
 			_ = c.Close()
 		}
-		if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-			err = errors.Join(err, fmt.Errorf("ffmpeg: remove output: %w", rerr))
+		if rerr := res.Remove(); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("ffmpeg: %w", rerr))
 		}
 		return err
 	}
@@ -233,7 +227,7 @@ func (w *Writer) Start(ctx context.Context, first ports.Frame, path string, s po
 	_ = pr.Close()
 	_ = out.Close()
 
-	w.cmd, w.stdin, w.path, w.stderr = cmd, pw, path, stderr
+	w.cmd, w.stdin, w.res, w.stderr = cmd, pw, res, stderr
 	w.width, w.height, w.format = first.Width, first.Height, first.Format
 	w.waitDone = make(chan struct{})
 	go func() { // sole reaper: runs Wait exactly once, also after any Kill
@@ -241,7 +235,7 @@ func (w *Writer) Start(ctx context.Context, first ports.Frame, path string, s po
 		close(w.waitDone)
 	}()
 	if ctx.Done() != nil {
-		w.startStop = context.AfterFunc(ctx, func() { w.interrupt(context.Cause(ctx)) })
+		w.startStop = context.AfterFunc(ctx, func() { w.interrupt(ctx.Err()) })
 	}
 	w.state.Store(stateRunning)
 	return nil
@@ -275,7 +269,7 @@ func (w *Writer) watch(ctx context.Context) (gen uint64, ok bool) {
 		w.writeDone = done
 		w.writeStop = context.AfterFunc(ctx, func() {
 			if w.active.Load() == g {
-				w.interrupt(context.Cause(ctx))
+				w.interrupt(ctx.Err())
 			}
 		})
 	}
@@ -382,9 +376,12 @@ func writeFull(dst io.Writer, p []byte) error {
 // removed otherwise. Repeated calls return the first result.
 func (w *Writer) Close() error { return w.terminate(false) }
 
-// Abort interrupts a pending Write and stops the encoder with a shorter grace
-// period than Close; a Close already draining is escalated to a kill. It is
-// safe concurrently with Write and idempotent.
+// Abort discards the recording: it interrupts a pending Write, kills the
+// encoder and removes the output file, even if frames were already written and
+// the encoder was healthy. A Close that is still draining is escalated to a
+// kill. Use Close to keep a video. It returns nil unless the encoder could not
+// be reaped or the file could not be removed, is safe concurrently with Write
+// and is idempotent.
 func (w *Writer) Abort() error { return w.terminate(true) }
 
 func (w *Writer) terminate(abort bool) error {
@@ -413,8 +410,8 @@ func (w *Writer) terminate(abort bool) error {
 	} else {
 		<-w.termDone
 	}
-	if abort && errors.Is(w.termErr, ErrNoFrames) {
-		return nil // nothing was recorded, so there is nothing to lose
+	if abort && !first {
+		return nil // the first terminal call owns the result
 	}
 	return w.termErr
 }
@@ -431,19 +428,17 @@ func (w *Writer) shutdown(abort bool) error {
 
 	_ = w.stdin.Close() // EOF: the encoder finalizes the file
 
-	limit := w.closeTimeout
-	escalate := w.abortCh
 	if abort {
-		limit, escalate = w.abortTimeout, nil
+		return w.discard()
 	}
-	timer := time.NewTimer(limit)
+	timer := time.NewTimer(w.closeTimeout)
 	defer timer.Stop()
 	var err error
 	select {
 	case <-w.waitDone:
 	case <-timer.C:
-		err = fmt.Errorf("ffmpeg: encoder did not finish within %s; killed", limit)
-	case <-escalate:
+		err = fmt.Errorf("ffmpeg: encoder did not finish within %s; killed", w.closeTimeout)
+	case <-w.abortCh:
 		err = errors.New("ffmpeg: shutdown aborted; encoder killed")
 	}
 	if err != nil {
@@ -475,11 +470,31 @@ func (w *Writer) shutdown(abort bool) error {
 		err = ErrNoFrames
 	}
 	if err != nil {
-		if rerr := os.Remove(w.path); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-			err = errors.Join(err, fmt.Errorf("ffmpeg: remove output: %w", rerr))
-		}
+		err = errors.Join(err, w.removeOutput())
 	}
 	return err
+}
+
+// discard kills the encoder, waits for the reaper and removes the output.
+func (w *Writer) discard() error {
+	_ = w.cmd.Process.Kill() // ErrProcessDone is harmless
+	var err error
+	kt := time.NewTimer(killTimeout)
+	defer kt.Stop()
+	select {
+	case <-w.waitDone:
+	case <-kt.C:
+		err = errors.New("ffmpeg: encoder not reaped after kill")
+	}
+	return errors.Join(err, w.removeOutput())
+}
+
+// removeOutput deletes the file Start reserved, but not a replacement.
+func (w *Writer) removeOutput() error {
+	if err := w.res.Remove(); err != nil {
+		return fmt.Errorf("ffmpeg: %w", err)
+	}
+	return nil
 }
 
 // boundedBuffer keeps the first limit bytes written and discards the rest, so

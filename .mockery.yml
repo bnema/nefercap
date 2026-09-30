@@ -26,3 +26,5 @@ packages:
       filename: io_mock_test.go
     interfaces:
       Writer:
+        config:
+          structname: MockIOWriter

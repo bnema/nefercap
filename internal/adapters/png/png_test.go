@@ -90,8 +90,8 @@ func TestSaveNeverOverwrites(t *testing.T) {
 	}
 	f := ports.Frame{Pixels: make([]byte, 4), Width: 1, Height: 1, Stride: 4, Format: ARGB}
 	err := New().Save(context.Background(), f, path)
-	if !errors.Is(err, ports.ErrPathExists) {
-		t.Fatalf("got %v, want ErrPathExists", err)
+	if !errors.Is(err, ports.ErrPathExists) || !errors.Is(err, os.ErrExist) {
+		t.Fatalf("got %v, want ErrPathExists and fs.ErrExist", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != "keep" {
 		t.Fatalf("existing file changed: %q", got)
@@ -181,5 +181,37 @@ func BenchmarkSave(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestCancelCleanupSparesReplacementFile(t *testing.T) {
+	const side = 2048
+	pix := make([]byte, side*side*4)
+	rng := rand.New(rand.NewPCG(3, 4))
+	for i := range pix {
+		pix[i] = byte(rng.Uint32())
+	}
+	f := ports.Frame{Pixels: pix, Width: side, Height: side, Stride: side * 4, Format: ports.XRGB8888}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shot.png")
+	moved := filepath.Join(dir, "moved.png")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { // the user moves the file away and puts their own at the path
+		for ctx.Err() == nil {
+			if _, err := os.Stat(path); err == nil {
+				if os.Rename(path, moved) == nil && os.WriteFile(path, []byte("user data"), 0o600) == nil {
+					cancel()
+					return
+				}
+			}
+			time.Sleep(50 * time.Microsecond)
+		}
+	}()
+	if err := New().Save(ctx, f, path); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want context.Canceled", err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "user data" {
+		t.Fatalf("replacement was removed or changed: %q, %v", got, err)
 	}
 }
