@@ -3,7 +3,7 @@ module github.com/bnema/nefercap
 go 1.27
 
 require (
-	github.com/bnema/nefergui v0.1.1-0.20260930144646-75780d042523
+	github.com/bnema/nefergui v0.2.0
 	github.com/bnema/wlturbo v0.3.0
 	github.com/bnema/zerowrap v1.4.1
 	github.com/stretchr/testify v1.12.1

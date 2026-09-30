@@ -1,5 +1,5 @@
-github.com/bnema/nefergui v0.1.1-0.20260930144646-75780d042523 h1:glFtvRf6AkJvym4vqNCZyrq30J8+cTvpH4sqmg28fog=
-github.com/bnema/nefergui v0.1.1-0.20260930144646-75780d042523/go.mod h1:JNjwv/YlesI0FflJvmHB5OqLd/bHfqFakpvJ2zJr+F4=
+github.com/bnema/nefergui v0.2.0 h1:+kuePc+HyZFmlm0C0JkFq7TfL/Et4ZQjNlGw7lgjeXc=
+github.com/bnema/nefergui v0.2.0/go.mod h1:JNjwv/YlesI0FflJvmHB5OqLd/bHfqFakpvJ2zJr+F4=
 github.com/bnema/purego v0.13.0-bnema.1 h1:fKRdztnvTmRqAjANMoN+utEIH73dvPqVPJh2iZCCAO8=
 github.com/bnema/purego v0.13.0-bnema.1/go.mod h1:xS1iX3noypxnbOUEUAqOvkfnUzgHuu19VtL4+dfUMJM=
 github.com/bnema/purego-vulkan v0.6.0 h1:SJgu0smuDC2vtBv0dJ6dmRKewJW5EUXQwTXyb/p9JSE=
