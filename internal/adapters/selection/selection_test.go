@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/bnema/nefergui"
@@ -404,7 +405,7 @@ func TestSceneGeometry(t *testing.T) {
 	assert.Equal(t, frect{100, 249, 200, 1}, s.edges[1])
 	assert.Equal(t, frect{100, 50, 1, 200}, s.edges[2])
 	assert.Equal(t, frect{299, 50, 1, 200}, s.edges[3])
-	assert.Equal(t, frect{100, 26, labelW, labelH}, s.label)
+	assert.Equal(t, frect{100, 50 - labelH - 4, labelW, labelH}, s.label)
 	// Dim strips and region tile the output exactly.
 	area := 200.0 * 200.0
 	for _, d := range s.dim {
@@ -425,8 +426,43 @@ func TestSceneMonitorOutlineAndGrid(t *testing.T) {
 }
 
 func TestLabelPlacementStaysOnSurface(t *testing.T) {
-	assert.Equal(t, frect{1800, 986, labelW, labelH}, labelRect(frect{1800, 1010, 100, 50}, 1920, 1080))
+	// Above the region, with a 4px gap.
+	assert.Equal(t, frect{1800, 1010 - labelH - 4, labelW, labelH}, labelRect(frect{1800, 1010, 100, 50}, 1920, 1080))
+	// No room above: just inside the region's top-left corner.
 	assert.Equal(t, frect{4, 4, labelW, labelH}, labelRect(frect{0, 0, 500, 500}, 1920, 1080))
+	// Exactly enough room above: the label touches the gap, not the edge.
+	assert.Equal(t, frect{10, 0, labelW, labelH}, labelRect(frect{10, labelH + 4, 300, 100}, 1920, 1080))
+	// One pixel short falls back to inside the region.
+	assert.Equal(t, frect{14, labelH + 3 + 4, labelW, labelH}, labelRect(frect{10, labelH + 3, 300, 100}, 1920, 1080))
+	// Right edge: shifted left to stay on the surface.
+	assert.Equal(t, frect{1920 - labelW, 100, labelW, labelH}, labelRect(frect{1900, 100 + labelH + 4, 20, 20}, 1920, 1080))
+	// Inside fallback near the bottom is clamped onto the surface.
+	assert.Equal(t, frect{4, 40 - labelH, labelW, labelH}, labelRect(frect{0, 20, 500, 20}, 1920, 40))
+	// A surface smaller than the label pins it to the origin.
+	assert.Equal(t, frect{0, 0, labelW, labelH}, labelRect(frect{5, 5, 10, 10}, labelW-1, labelH-1))
+}
+
+func TestLabelStaysOnSurfaceWhenItFits(t *testing.T) {
+	const w, h = 300.0, 100.0
+	for y := 0.0; y <= h; y += 7 {
+		for x := 0.0; x <= w; x += 13 {
+			l := labelRect(frect{x, y, w - x, h - y}, w, h)
+			assert.GreaterOrEqual(t, l.x, 0.0)
+			assert.GreaterOrEqual(t, l.y, 0.0)
+			assert.LessOrEqual(t, l.x+l.w, w, "region %v,%v", x, y)
+			assert.LessOrEqual(t, l.y+l.h, h, "region %v,%v", x, y)
+		}
+	}
+}
+
+// The tallest default 13px monospace line is 17.71px (Noto Sans Mono).
+// Keep the sizing assumptions explicit rather than partially parsing CSS.
+func TestLabelContentHoldsMonospaceLine(t *testing.T) {
+	const line, padY = 17.71, 4.0
+	require.True(t, strings.Contains(styleSheet, "box-sizing: border-box; padding: 4px 10px; overflow: hidden;"), "update label sizing when tag box sizing changes")
+	content := labelH - 2*padY
+	assert.GreaterOrEqual(t, content, line, "label clips its text line")
+	assert.GreaterOrEqual(t, content-line+padY, 1.0, "less than 1px below the text line")
 }
 
 func TestFooterAndHeaderText(t *testing.T) {

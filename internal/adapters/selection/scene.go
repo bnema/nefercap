@@ -7,7 +7,8 @@ import (
 
 // Fixed overlay element sizes in logical pixels.
 const (
-	labelW, labelH   = 120.0, 20.0
+	// 4px tag padding leaves 18px for the default 13px monospace line.
+	labelW, labelH   = 120.0, 26.0
 	footerW, footerH = 400.0, 28.0
 	headerH          = 28.0
 	edge             = 1.0 // thin selection lines
