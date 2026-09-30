@@ -1,34 +1,56 @@
-# nefercap
+<h1 align="center">nefercap</h1>
 
-Fast Wayland screenshots and silent video recording with a NeferGUI layer-shell selector.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue?style=flat-square" alt="License: GPLv3"></a>
+  <a href="https://github.com/bnema/nefercap"><img src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" alt="Platform: Linux"></a>
+  <a href="https://github.com/bnema/nefercap/commits/main"><img src="https://badgen.net/github/last-commit/bnema/nefercap/main?icon=github" alt="Last commit"></a>
+  <a href="https://github.com/bnema/nefercap/stargazers"><img src="https://badgen.net/github/stars/bnema/nefercap?icon=github" alt="GitHub stars"></a>
+</p>
 
-## Quick capture
+<p align="center">Screenshots and silent screen recording for Wayland, from one shortcut.</p>
 
-```sh
-make bin
-./bin/nefercap
-./bin/nefercap shot
-./bin/nefercap shot -clipboard
-./bin/nefercap shot -clipboard -file capture.png
-./bin/nefercap rec
-./bin/nefercap stop
-./bin/nefercap status
+> [!WARNING]
+> **Early alpha.** Built for [NeferWL](https://github.com/bnema/neferwl). Other compositors can take screenshots but cannot record. Expect bugs and breaking config changes.
+
+---
+
+## Usage
+
+Bind `nefercap` to a key in your compositor. For NeferWL:
+
+```text
+bind.cmd+p = spawn nefercap
 ```
 
-`nefercap` without a command is all-in-one: it stops an active recording, otherwise opens the selector in shot mode. **Tab** switches shot ⇄ rec and keeps the chosen region, monitor or workspace; Enter or a click confirms in the current mode. It takes no flags except `-debug` and reads its settings from the config file. `shot` and `rec` keep a fixed mode (no Tab) and accept `-file`/`-clipboard` (shot) to override the config per run. A neutral badge at the top left of every overlay always shows the mode: `SHOT` or `REC`.
+Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm. A badge at the top left shows the mode: `SHOT` or `REC`.
 
-The selector covers the connected outputs, up to nine:
+While recording, a red border marks the target and a small **REC / Stop** HUD shows the time. Neither appears in the video. Press the key again, or click Stop, to finish the file.
 
-- **Drag and release:** capture a rectangle, clamped to its monitor.
-- **Click:** capture the monitor; small pointer jitter counts as a click.
-- **M, then Enter:** select the monitor.
-- **W, then Enter:** select the current workspace when native workspace metadata is available.
-- **R:** return to rectangle selection. **G:** toggle full-monitor center and thirds guides.
-- **1–9:** select that monitor. **Esc:** cancel without creating a capture.
+| Input | Action |
+| --- | --- |
+| Drag | Capture a rectangle |
+| Click | Capture the monitor |
+| `W`, then Enter | Capture the current workspace |
+| `M`, then Enter | Capture the monitor |
+| `1`–`9` | Pick that monitor |
+| `R` | Back to rectangle selection |
+| `G` | Show or hide the thirds guides |
+| `Tab` | Switch shot ⇄ rec |
+| `Esc` | Cancel |
 
-The selector shows mode keys and the current confirmation action in a two-line legend. Workspace hints appear only when a current workspace is available. Text uses a 1rem base (16 logical pixels), with proportional spacing and controls; the output's fractional scaling determines physical size.
+A workspace recording follows that workspace, even when you switch to another one. A monitor recording follows whatever the monitor shows.
 
-The guides are visible by default: three vertical and three horizontal medium-gray lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. Settings live in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
+## Features
+
+- **One shortcut.** Screenshot and recording share one selector; the same key stops a recording.
+- **Clean video.** The compositor keeps the border and HUD out of the recording.
+- **Clipboard.** Screenshots can be saved, copied, or both.
+- **Small footprint.** One capture in flight, reused buffers, no redraw while idle. Allocation tests guard the hot paths.
+- **Scriptable.** `nefercap screenshot` and `nefercap record` run without the selector.
+
+## Configuration
+
+`~/.config/nefercap/config` (or `$XDG_CONFIG_HOME/nefercap/config`):
 
 ```ini
 selector.grid = on
@@ -37,68 +59,67 @@ screenshot.output = file+clipboard
 video.dir = ~/Videos
 ```
 
-- `selector.grid`: `on` (default) or `off` to hide the guides on startup.
-- `screenshot.dir`, `video.dir`: an absolute path or `~/…`; relative paths are errors. Absent, the XDG defaults below apply. Before the selector opens, nefercap creates (private) and checks each directory the command can use: both for all-in-one, one for `shot` or `rec`.
-- `screenshot.output`: `file` (default), `file+clipboard` (save, then copy the same PNG) or `clipboard` (copy only; no file, no path printed).
+| Key | Values | Default |
+| --- | --- | --- |
+| `selector.grid` | `on`, `off` | `on` |
+| `screenshot.dir` | absolute or `~/` path | `$XDG_PICTURES_DIR/Screenshots` |
+| `screenshot.output` | `file`, `file+clipboard`, `clipboard` | `file` |
+| `video.dir` | absolute or `~/` path | `$XDG_VIDEOS_DIR` |
 
-Each key may appear once; blank lines and `#` comment lines are allowed; unknown keys, duplicates and invalid values are errors reported before the selector opens. `screenshot.output` and the directories apply to all-in-one, `shot` and `rec`; the scripted `screenshot` and `record` never read them. On `shot`, `-clipboard` alone copies only, `-clipboard -file PATH` saves and copies, and `-file PATH` alone saves only, whatever `screenshot.output` says. **G** changes visibility for the current monitor's overlay without rewriting the config. Selection dimensions are logical pixels; the captured file's dimensions depend on the monitor scaling.
+Unknown keys, duplicates and invalid values are reported before the selector opens. Files are private, named with a timestamp, never overwritten, and their path is printed on stdout.
 
-A screenshot saves immediately. Recording displays a red border around the visible target and a small **REC / Stop** HUD. Both are excluded from nefercap's video. The HUD takes no keyboard focus; clicks outside Stop pass through. Press the recording shortcut again, click Stop, or run `nefercap stop` to finish the file.
+## Commands
 
-Monitor recording follows workspace changes. A workspace recording follows its stable identity and continues when another workspace is displayed. A fixed region stays attached to its monitor. A hidden workspace has no border on the unrelated visible workspace; the recording HUD remains available.
+```sh
+nefercap              # all-in-one: stop the recording, else open the selector
+nefercap shot         # selector, screenshot only
+nefercap rec          # selector, recording only
+nefercap stop         # stop the active recording
+nefercap status       # print the recording state
+```
 
-Without `screenshot.dir`/`video.dir`, screenshots go to the configured XDG Pictures directory's `Screenshots` subdirectory, and videos to the XDG Videos directory. Names include a nanosecond timestamp. `-file` chooses an explicit destination. Files are private to their owner and are never overwritten. The saved path is printed to stdout, including for scripted commands. Cancelling before any frame is written creates no file and prints no path.
+Scripted commands never open the selector:
 
-`shot -clipboard` copies an `image/png` screenshot using `wl-copy` without creating a capture file or printing a path. Add `-file PATH` to save and copy the same PNG. A successfully saved file is retained and its path printed even if clipboard copying later fails. The clipboard owner intentionally survives nefercap's exit. This CLI-only option also works with scripted `screenshot`; other commands reject it. Install `wl-clipboard` to use it.
+```sh
+nefercap outputs
+nefercap screenshot -output DP-1 -file shot.png
+nefercap screenshot -output DP-1 -region 0,0,1920x1080 -clipboard
+nefercap record -output DP-1 -fps 30 -duration 10s -file clip.mp4
+```
 
-`shot` while a recording is active is refused: its overlay is not part of the existing session's authorized controls. A scripted `screenshot` still uses standard capture and includes the active HUD and border.
+`nefercap -h` lists every flag. Regions use output-local logical coordinates. `-size WxH` sets an even output resolution for odd-sized sources.
 
 ## Requirements
 
-- Go 1.27 for development; normal builds use `CGO_ENABLED=0`.
-- For selection: layer-shell v4, Vulkan, libxkbcommon, linux-dmabuf and linux-drm-syncobj.
-- For capture: `zwlr_screencopy_manager_v1`.
-- For recording indicators and workspace targets: NeferWL's native capture-session protocol.
-- FFmpeg with `libx264` for silent H.264 video in fragmented MP4.
+- Go 1.27 to build.
+- A Wayland compositor with `zwlr_layer_shell_v1` v4 and `zwlr_screencopy_manager_v1`.
+- Vulkan, libxkbcommon, linux-dmabuf and linux-drm-syncobj for the selector.
+- NeferWL's capture-session protocol to record.
+- FFmpeg with `libx264` to record.
 - `wl-copy` (wl-clipboard) for clipboard screenshots.
 
-A standard compositor can support monitor/region screenshots. Recording refuses to start without native session support rather than capture its own controls. Standard capture clients keep their normal behavior and see the HUD and border.
+Output is SDR, and video is silent H.264 in fragmented MP4. Audio, pause and cursor capture are not supported.
 
-## Scripted commands
+## Install
 
 ```sh
-./bin/nefercap outputs
-./bin/nefercap screenshot -output DP-1 -file capture.png
-./bin/nefercap screenshot -output DP-1 -region 0,0,1920x1080 -file region.png
-./bin/nefercap record -output DP-1 -fps 30 -duration 10s -file capture.mp4
-./bin/nefercap rec -size 1920x1080 -file presentation.mp4
+make bin    # builds bin/nefercap
 ```
 
-Use an output name from `outputs`. Scripted `screenshot` requires `-file` unless `-clipboard` is used; `record` always requires `-file`; omitting `-output` is allowed with exactly one output. Regions use output-local logical coordinates, not desktop-global coordinates. Capture dimensions are physical pixels negotiated with the compositor.
+Copy `bin/nefercap` to a directory on your `PATH`.
 
-`-fps` accepts 1–120, default 30. `-size` requires two even dimensions and changes encoded resolution, not application scaling. Odd source dimensions require an explicit even size; pixels are not silently cropped. `-debug` enables diagnostic logging.
+## Development
 
-Untimed recording stops with the HUD, the control command, Ctrl+C or SIGTERM and finalizes the file. The `stop` command acknowledges the request; finalization finishes in the recorder process, not before the control reply. Timed recording encodes `ceil(duration × fps)` frames. Slow capture can repeat frames; encoder backpressure can extend wall time without adding an unbounded queue.
-
-Screenshots and video are opaque SDR. Audio, pause and cursor guarantees are not supported. NeferWL ignores the capture protocol's cursor option.
-
-## Architecture and footprint
-
-`internal/core` owns capture and selection state and imports only stdlib and `internal/ports`. `internal/adapters` contains Wayland, selection, indicator, control, PNG and FFmpeg integrations. `internal/app` wires them together.
-
-One capture is in flight. Writers synchronously consume borrowed, reusable shared-memory storage. Video strips stride padding and handles vertical inversion without a full-frame heap copy. The selector opens one transient layer surface per output; the HUD is one small surface, not a fullscreen GPU buffer. Idle UI does not redraw continuously.
-
-The encoder uses `veryfast`, `zerolatency`, two encoding threads and one filter thread. Its separate-process footprint is not the Go heap; lower buffering can produce larger files than slower presets.
+`internal/core` owns capture and selection state and imports only the standard library and `internal/ports`. `internal/adapters` holds Wayland, selector, HUD, PNG and FFmpeg code; `internal/app` wires them.
 
 ```sh
 make check
 make race
 make mocks-check
 staticcheck ./...
-go test ./... -run '^$' -bench . -benchmem
 ```
 
-Mockery v3 generates test doubles. Allocation guards cover frame views, selection state, unchanged overlay geometry, HUD refresh, video rows, encoder writes and output lookup. Protocol capture has a measured allocation budget; the application does not claim zero total allocations.
+Test doubles are generated by Mockery v3.
 
 ## License
 
