@@ -1,6 +1,8 @@
 package ports
 
 import (
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -10,23 +12,34 @@ func TestFrameValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		name   string
-		change func(*Frame)
+		name        string
+		frame       Frame
+		wantMessage string
+		wantIs      error
 	}{
-		{"zero width", func(f *Frame) { f.Width = 0 }},
-		{"negative height", func(f *Frame) { f.Height = -1 }},
-		{"oversized width", func(f *Frame) { f.Width = MaxDimension + 1 }},
-		{"short stride", func(f *Frame) { f.Stride = 7 }},
-		{"oversized storage", func(f *Frame) { f.Stride = MaxFrameBytes }},
-		{"unsupported format", func(f *Frame) { f.Format = 42 }},
-		{"short storage", func(f *Frame) { f.Pixels = f.Pixels[:23] }},
+		{"zero width", Frame{Width: 0, Height: 1, Stride: 4, Pixels: make([]byte, 4)}, "invalid frame dimensions", nil},
+		{"negative height", Frame{Width: 1, Height: -1, Stride: 4, Pixels: make([]byte, 4)}, "invalid frame dimensions", nil},
+		{"oversized width", Frame{Width: MaxDimension + 1, Height: 1, Stride: (MaxDimension + 1) * 4, Pixels: make([]byte, (MaxDimension+1)*4)}, "invalid frame dimensions", nil},
+		{"oversized height", Frame{Width: 1, Height: MaxDimension + 1, Stride: 4, Pixels: make([]byte, (MaxDimension+1)*4)}, "invalid frame dimensions", nil},
+		{"short aligned stride", Frame{Width: 2, Height: 1, Stride: 4, Pixels: make([]byte, 4)}, "invalid frame stride", nil},
+		{"unaligned stride", Frame{Width: 1, Height: 1, Stride: 6, Pixels: make([]byte, 6)}, "invalid frame stride", nil},
+		// The error family proves storage bounds run before the short-slice check.
+		{"excessive stride", Frame{Width: 1, Height: 2, Stride: MaxFrameBytes/2 + 4}, "invalid frame stride", nil},
+		{"overflow stride", Frame{Width: 1, Height: 2, Stride: int(^uint(0)>>1) &^ 3}, "invalid frame stride", nil},
+		{"unsupported format", Frame{Width: 1, Height: 1, Stride: 4, Pixels: make([]byte, 4), Format: 42}, "", ErrUnsupportedFormat},
+		{"short storage", Frame{Width: 2, Height: 2, Stride: 12, Pixels: make([]byte, 23)}, "short frame storage", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := valid
-			tc.change(&f)
-			if f.Validate() == nil {
+			err := tc.frame.Validate()
+			if err == nil {
 				t.Fatal("accepted invalid frame")
+			}
+			if tc.wantIs != nil && !errors.Is(err, tc.wantIs) {
+				t.Fatalf("got %v, want %v", err, tc.wantIs)
+			}
+			if tc.wantMessage != "" && !strings.Contains(err.Error(), tc.wantMessage) {
+				t.Fatalf("got %v, want %s", err, tc.wantMessage)
 			}
 		})
 	}

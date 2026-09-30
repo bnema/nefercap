@@ -1,6 +1,9 @@
 package ports
 
-import "errors"
+import (
+	"errors"
+	"io/fs"
+)
 
 var (
 	ErrClosed            = errors.New("capture resource is closed")
@@ -8,5 +11,6 @@ var (
 	ErrUnsupportedFormat = errors.New("unsupported capture pixel format")
 	ErrInvalidRegion     = errors.New("invalid output-local capture region")
 	ErrOutputNotFound    = errors.New("capture output not found")
-	ErrPathExists        = errors.New("capture path already exists")
+	// ErrPathExists is the standard filesystem conflict sentinel.
+	ErrPathExists = fs.ErrExist
 )

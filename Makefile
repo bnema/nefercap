@@ -1,4 +1,4 @@
-.PHONY: bin build test vet race mocks mocks-check fakes-check arch perf-check check
+.PHONY: bin build test vet race mod-check mocks mocks-check fakes-check arch perf-check check
 
 GOBIN_DIR := $(or $(shell go env GOBIN),$(firstword $(subst :, ,$(shell go env GOPATH)))/bin)
 MOCKERY ?= $(GOBIN_DIR)/mockery
@@ -16,6 +16,9 @@ vet:
 race:
 	# cgo is enabled only for the race test binary.
 	CGO_ENABLED=1 go test -race ./...
+# go.mod and go.sum must be tidy (prints the diff and fails otherwise).
+mod-check:
+	go mod tidy -diff
 
 # Regenerate from scratch so mocks of removed interfaces disappear too.
 mocks:
@@ -24,16 +27,9 @@ mocks:
 	find internal -name '*_mock_test.go' -delete
 	$(MOCKERY)
 
-# Checksum of all generated mocks (paths and contents); empty set is valid.
-MOCKSUM = { find internal -type f \( -path 'internal/mocks/*' -o -name '*_mock_test.go' \) | LC_ALL=C sort | xargs -r sha256sum; } | sha256sum
 MOCKS := internal/mocks ':(glob)internal/**/*_mock_test.go'
-# Regenerate and compare checksums (independent of committed state), then also
-# require the mocks to be tracked and clean.
-mocks-check:
-	@before=$$($(MOCKSUM)); \
-	$(MAKE) --no-print-directory mocks || exit $$?; \
-	after=$$($(MOCKSUM)); \
-	[ "$$before" = "$$after" ] || { echo 'generated mocks were stale: review and commit the regenerated files' >&2; exit 1; }
+# Regenerate, then require the mocks to be tracked and unchanged.
+mocks-check: mocks
 	git diff --exit-code -- $(MOCKS)
 	@test -z "$$(git ls-files --others --exclude-standard -- $(MOCKS))" || { echo 'untracked generated mocks: commit them' >&2; exit 1; }
 
@@ -46,12 +42,18 @@ fakes-check:
 	[ $$rc -eq 1 ] || { [ $$rc -eq 0 ] && echo 'handwritten test double: add an interface and a Mockery entry (see AGENTS.md)' >&2; exit 1; }
 arch:
 	$(HEXCHECK) -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
-# Steady-state allocation guards. Extend PERF_TESTS (regexp, exact names) and
-# PERF_PKGS as encoder/wayland tests appear. The preflight fails if no listed
-# test matches, so the guard cannot pass vacuously.
-PERF_TESTS := ^TestFrameAllocations$$
+# Steady-state allocation guards. PERF_TESTS lists exact test names and PERF_PKGS
+# the packages holding them; extend both as encoder/wayland tests appear. Every
+# named test must exist, so the guard cannot pass vacuously.
+PERF_TESTS := TestFrameAllocations
 PERF_PKGS := ./internal/ports
+perf_empty :=
+perf_space := $(perf_empty) $(perf_empty)
+PERF_RE := ^($(subst $(perf_space),|,$(strip $(PERF_TESTS))))$$
 perf-check:
-	@CGO_ENABLED=0 go test -list '$(PERF_TESTS)' $(PERF_PKGS) | grep -Eq '$(PERF_TESTS)' || { echo 'perf-check: no test matches $(PERF_TESTS) in $(PERF_PKGS)' >&2; exit 1; }
-	CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_TESTS)' -count=1
-check: vet test arch fakes-check perf-check
+	@out=$$(CGO_ENABLED=0 go test -list '$(PERF_RE)' $(PERF_PKGS)) || { echo "$$out" >&2; exit 1; }; \
+	for t in $(PERF_TESTS); do \
+		printf '%s\n' "$$out" | grep -qx "$$t" || { echo "perf-check: test $$t not found in $(PERF_PKGS)" >&2; exit 1; }; \
+	done
+	CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_RE)' -count=1
+check: mod-check vet test arch fakes-check perf-check

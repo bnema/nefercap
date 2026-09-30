@@ -3,7 +3,7 @@
 - Local-only repository: do not create remotes, publish branches, or access GitHub without explicit permission.
 - Use Go 1.27; normal builds and tests use CGO_ENABLED=0. Enable CGO only for race tests.
 - Follow lightweight hexagonal architecture: cmd/nefercap and internal/app wire internal/core, internal/ports, and internal/adapters. Core imports only stdlib and ports; ports contain no framework types.
-- Use NeferGUI v0.10 for graphical interfaces and zerowrap with a component field for logging. Reuse NeferWL dependency versions where applicable; do not copy unrelated compositor dependencies.
+- Use NeferGUI v0.1.0 for graphical interfaces and zerowrap with a component field for logging. Reuse NeferWL dependency versions where applicable; do not copy unrelated compositor dependencies.
 - Work in .worktrees/ branches, not directly on main. Merge locally only after checks and review pass.
 - Sign every commit and tag; commit format: type(scope): description.
 - Minimize footprint. Bound buffers, queues and subprocess lifetimes. Reuse frame storage; test and benchmark steady-state allocations. Do not claim zero allocations without measurements.

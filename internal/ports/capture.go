@@ -62,6 +62,7 @@ type VideoSettings struct {
 }
 
 // VideoWriter has one owner. Start fixes input geometry and reserves a new path.
+// Start does not encode its frame; pass the first frame explicitly to Write.
 // Write consumes borrowed pixels before returning; it must not queue frames.
 // Close drains and finalizes the encoder with a bounded shutdown deadline.
 // Abort interrupts pending writes and is safe concurrently with Write.
