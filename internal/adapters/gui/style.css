@@ -1,0 +1,39 @@
+/* Dark, monospace, thin borders, one accent (#4fd1a5). */
+app {
+  display: flex; flex-direction: column; width: 100%; height: 100%;
+  box-sizing: border-box; padding: 16px 20px; row-gap: 6px;
+  background: #0d1014; color: #c9d1d9;
+  font-family: monospace; font-size: 14px; line-height: 1.4;
+  accent-color: #4fd1a5;
+  /* Short windows scroll with the wheel; NeferGUI 0.1.0 does not scroll focus into view. */
+  overflow-y: auto;
+}
+/* Children keep their natural height so overflow scrolls instead of squashing. */
+heading, text, radio, row, column, button { flex-shrink: 0; }
+heading { margin: 0 0 4px 0; font-size: 16px; font-weight: 700; color: #4fd1a5; }
+text.section { margin-top: 8px; color: #8b949e; }
+text.note { color: #8b949e; font-size: 12px; }
+text.status { margin-top: 8px; color: #8b949e; }
+text.status.bad { color: #e6edf3; font-weight: 700; }
+text.field-label { width: 96px; flex-shrink: 0; color: #8b949e; }
+column.group {
+  display: flex; flex-direction: column; row-gap: 2px;
+  box-sizing: border-box; padding: 6px 8px; border: 1px solid #2a313b;
+}
+row.field { display: flex; flex-direction: row; align-items: center; column-gap: 8px; }
+row.actions { display: flex; flex-direction: row; column-gap: 8px; margin-top: 8px; }
+radio { padding-top: 2px; padding-bottom: 2px; color: #c9d1d9; }
+radio:hover { color: #e6edf3; }
+radio:focus-visible, button:focus-visible { outline: 1px solid #4fd1a5; outline-offset: 1px; }
+input {
+  box-sizing: border-box; flex-grow: 1; min-width: 0; padding: 4px 8px;
+  background: #12161c; color: #e6edf3; border: 1px solid #2a313b;
+}
+input:focus { border-color: #4fd1a5; }
+button {
+  box-sizing: border-box; padding: 6px 16px;
+  background: #12161c; color: #e6edf3; border: 1px solid #2a313b;
+}
+button:hover { border-color: #4fd1a5; }
+button.primary { background: #4fd1a5; color: #0d1014; border-color: #4fd1a5; font-weight: 700; }
+button:disabled, button.primary:disabled { background: #12161c; color: #5b6570; border-color: #2a313b; }
