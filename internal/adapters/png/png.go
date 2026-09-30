@@ -59,13 +59,19 @@ func (*Writer) Save(ctx context.Context, f ports.Frame, path string) (err error)
 			}
 		}
 	}()
-	return encode(ctx, file, f)
+	return New().Encode(ctx, file, f)
 }
 
 // encode writes f to w. The frame is converted once to opaque RGBA because the
 // encoder only has fast paths for the standard image types and stored pixels
 // are BGRA; the copy is exactly one frame and is released on return.
-func encode(ctx context.Context, w io.Writer, f ports.Frame) error {
+func (*Writer) Encode(ctx context.Context, w io.Writer, f ports.Frame) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := f.Validate(); err != nil {
+		return err
+	}
 	img, err := toRGBA(ctx, f)
 	if err != nil {
 		return err

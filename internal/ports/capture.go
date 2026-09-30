@@ -3,6 +3,7 @@ package ports
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -67,6 +68,13 @@ type Source interface {
 // Save completes all reads from borrowed frame storage before returning.
 type ScreenshotWriter interface {
 	Save(context.Context, Frame, string) error
+	// Encode consumes borrowed pixels synchronously without creating a file.
+	Encode(context.Context, io.Writer, Frame) error
+}
+
+// Clipboard accepts PNG bytes synchronously. Its owner may outlive this process.
+type Clipboard interface {
+	Copy(context.Context, io.Reader) error
 }
 
 // VideoSettings describes fixed-rate silent SDR video. Zero output dimensions
@@ -107,11 +115,12 @@ const (
 
 // Selection is returned by a control panel before capture begins.
 type Selection struct {
-	Mode     Mode
-	Target   Target
-	Path     string
-	Video    VideoSettings
-	Duration time.Duration // zero records until context cancellation
+	Mode      Mode
+	Target    Target
+	Path      string
+	Clipboard bool // screenshot only; permits an empty Path
+	Video     VideoSettings
+	Duration  time.Duration // zero records until context cancellation
 }
 
 // Selector must close its surface before returning an accepted selection.

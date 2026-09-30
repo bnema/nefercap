@@ -46,7 +46,8 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 	}
 	sel.Duration = options.Duration
 	sel.Path = options.Path
-	if sel.Path == "" {
+	sel.Clipboard = options.Clipboard
+	if sel.Path == "" && !sel.Clipboard {
 		if mode == ports.Record {
 			sel.Path, err = destination.Video()
 		} else {

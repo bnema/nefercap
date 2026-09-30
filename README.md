@@ -7,6 +7,8 @@ Fast Wayland screenshots and silent video recording with a NeferGUI layer-shell 
 ```sh
 make bin
 ./bin/nefercap shot
+./bin/nefercap shot -clipboard
+./bin/nefercap shot -clipboard -file capture.png
 ./bin/nefercap rec
 ./bin/nefercap stop
 ./bin/nefercap status
@@ -37,6 +39,8 @@ Monitor recording follows workspace changes. A workspace recording follows its s
 
 Screenshots go to the configured XDG Pictures directory's `Screenshots` subdirectory, and videos to the XDG Videos directory. Names include a nanosecond timestamp. `-file` chooses an explicit destination. Files are private to their owner and are never overwritten. The saved path is printed to stdout, including for scripted commands. Cancelling before any frame is written creates no file and prints no path.
 
+`shot -clipboard` copies an `image/png` screenshot using `wl-copy` without creating a capture file or printing a path. Add `-file PATH` to save and copy the same PNG. A successfully saved file is retained and its path printed even if clipboard copying later fails. The clipboard owner intentionally survives nefercap's exit. This CLI-only option also works with scripted `screenshot`; other commands reject it. Install `wl-clipboard` to use it.
+
 Opening screenshot selection while a recording is active is refused: its overlay is not part of the existing session's authorized controls. A scripted `screenshot` still uses standard capture and includes the active HUD and border.
 
 ## Requirements
@@ -59,7 +63,7 @@ A standard compositor can support monitor/region screenshots. Recording refuses 
 ./bin/nefercap rec -size 1920x1080 -file presentation.mp4
 ```
 
-Use an output name from `outputs`. Scripted `screenshot` and `record` require `-file`; omitting `-output` is allowed with exactly one output. Regions use output-local logical coordinates, not desktop-global coordinates. Capture dimensions are physical pixels negotiated with the compositor.
+Use an output name from `outputs`. Scripted `screenshot` requires `-file` unless `-clipboard` is used; `record` always requires `-file`; omitting `-output` is allowed with exactly one output. Regions use output-local logical coordinates, not desktop-global coordinates. Capture dimensions are physical pixels negotiated with the compositor.
 
 `-fps` accepts 1–120, default 30. `-size` requires two even dimensions and changes encoded resolution, not application scaling. Odd source dimensions require an explicit even size; pixels are not silently cropped. `-debug` enables diagnostic logging.
 

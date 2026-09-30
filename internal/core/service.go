@@ -286,7 +286,10 @@ func validateSelection(sel ports.Selection) error {
 	if err := validateRegion(sel.Target.Region); err != nil {
 		return err
 	}
-	if sel.Path == "" {
+	if sel.Clipboard && sel.Mode != ports.Screenshot {
+		return fmt.Errorf("%w: clipboard requires screenshot", ErrInvalidSelection)
+	}
+	if sel.Path == "" && !sel.Clipboard {
 		return fmt.Errorf("%w: empty path", ErrInvalidSelection)
 	}
 	if sel.Duration < 0 {

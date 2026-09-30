@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bnema/nefercap/internal/adapters/cli"
+	"github.com/bnema/nefercap/internal/adapters/clipboard"
 	"github.com/bnema/nefercap/internal/adapters/ffmpeg"
 	"github.com/bnema/nefercap/internal/adapters/png"
 	"github.com/bnema/nefercap/internal/adapters/wayland"
@@ -63,7 +64,7 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 		if err != nil {
 			return err
 		}
-		selection = ports.Selection{Target: ports.Target{OutputID: target.ID, Region: options.Region}, Path: options.Path, Video: options.Video, Duration: options.Duration}
+		selection = ports.Selection{Target: ports.Target{OutputID: target.ID, Region: options.Region}, Path: options.Path, Clipboard: options.Clipboard, Video: options.Video, Duration: options.Duration}
 		switch options.Command {
 		case cli.Screenshot:
 			selection.Mode = ports.Screenshot
@@ -88,8 +89,17 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 			}
 			selection.Target = state.Target
 		}
-		err = core.New(source, png.New(), ffmpeg.New()).Run(ctx, selection)
-		saved = err == nil
+		var writer ports.ScreenshotWriter = png.New()
+		var copied *clipboard.Writer
+		if selection.Clipboard {
+			copied = clipboard.NewWriter(writer, clipboard.New())
+			writer = copied
+		}
+		err = core.New(source, writer, ffmpeg.New()).Run(ctx, selection)
+		saved = err == nil && selection.Path != ""
+		if copied != nil {
+			saved = copied.Saved
+		}
 	}
 	if saved && err == nil {
 		log.Info().Msg("capture complete")

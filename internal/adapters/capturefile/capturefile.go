@@ -22,7 +22,16 @@ type Reservation struct {
 // error matching both ports.ErrPathExists and fs.ErrExist. The returned
 // Reservation records the file's identity for a later Remove.
 func Create(path string) (*os.File, *Reservation, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	return create(path, os.O_WRONLY)
+}
+
+// CreateReadable reserves a file whose original descriptor can be reused for copying.
+func CreateReadable(path string) (*os.File, *Reservation, error) {
+	return create(path, os.O_RDWR)
+}
+
+func create(path string, access int) (*os.File, *Reservation, error) {
+	f, err := os.OpenFile(path, access|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return nil, nil, fmt.Errorf("%w: %w", ports.ErrPathExists, err)

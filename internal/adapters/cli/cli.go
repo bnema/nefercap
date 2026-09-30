@@ -42,13 +42,14 @@ var ErrUsage = errors.New("usage error")
 // Path is optional for Shot and Rec, where an empty Path lets the caller
 // choose one.
 type Options struct {
-	Command  Command
-	Output   string // output name; empty lets the caller choose
-	Region   ports.Region
-	Path     string
-	Video    ports.VideoSettings
-	Duration time.Duration
-	Debug    bool
+	Command   Command
+	Output    string // output name; empty lets the caller choose
+	Region    ports.Region
+	Path      string
+	Video     ports.VideoSettings
+	Duration  time.Duration
+	Debug     bool
+	Clipboard bool
 }
 
 // Usage describes the command line.
@@ -80,9 +81,10 @@ Script commands (never open the selector):
   record      record silent video until interrupted or target video length is reached
 
 Flags:
+  -clipboard        copy PNG with wl-copy; no file unless -file is given (shot, screenshot)
   -debug            enable debug logging (all commands)
   -output NAME      output name (all except stop, status, outputs)
-  -file PATH        new file to write; optional for shot, rec, required for screenshot, record
+  -file PATH        new file to write; optional for shot, rec; screenshot requires it unless -clipboard; record requires it
   -region X,Y,WxH   output-local logical region; default is the full output (screenshot, record)
   -fps N            frames per second, 1..%d (rec, record, default %d)
   -size WxH         scaled video size, both even, at most %d each (rec, record, default source size)
@@ -123,6 +125,9 @@ func Parse(args []string, out io.Writer) (Options, error) {
 	if scripted {
 		fs.StringVar(&region, "region", "", "")
 	}
+	if opts.Command == Shot || opts.Command == Screenshot {
+		fs.BoolVar(&opts.Clipboard, "clipboard", false, "")
+	}
 	if video {
 		fs.IntVar(&fps, "fps", DefaultFPS, "")
 		fs.StringVar(&size, "size", "", "")
@@ -143,10 +148,10 @@ func Parse(args []string, out io.Writer) (Options, error) {
 		return opts, nil
 	}
 
-	if scripted && opts.Path == "" {
+	if scripted && opts.Path == "" && !opts.Clipboard {
 		return Options{}, usageErr("-file is required")
 	}
-	if interactive {
+	if interactive || opts.Clipboard {
 		// Set explicitly so "-file ''" is rejected rather than treated as auto.
 		explicit := false
 		fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "file" })
