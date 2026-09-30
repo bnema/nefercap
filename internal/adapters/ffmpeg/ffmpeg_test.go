@@ -921,3 +921,28 @@ func TestCloseKeepsVideoAfterCancelledWrite(t *testing.T) {
 		t.Fatalf("encoder output %q", got)
 	}
 }
+
+func TestAwaitExitPrefersObservedExit(t *testing.T) {
+	for name, ready := range map[string]func(*Writer){
+		"abort":   func(w *Writer) { close(w.abortCh) },
+		"timeout": func(w *Writer) { w.closeTimeout = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := NewWithBinary("unused")
+			w.waitDone = make(chan struct{})
+			close(w.waitDone) // the encoder has already exited
+			ready(w)
+			if err := w.awaitExit(); err != nil {
+				t.Fatalf("clean exit reported as %v", err)
+			}
+		})
+	}
+	t.Run("abort without exit", func(t *testing.T) {
+		w := NewWithBinary("unused")
+		w.waitDone = make(chan struct{})
+		close(w.abortCh)
+		if err := w.awaitExit(); err == nil {
+			t.Fatal("abort before exit reported success")
+		}
+	})
+}

@@ -373,15 +373,23 @@ func writeFull(dst io.Writer, p []byte) error {
 // Close signals EOF, waits for the encoder to finalize the file (bounded, then
 // kills it) and reports the outcome. The video is kept when the encoder exits
 // cleanly after at least one frame, including after a cancelled context; it is
-// removed otherwise. Repeated calls return the first result.
+// removed otherwise. Close and Abort are terminal and the first one wins:
+// later Close calls return the first Close result, and Close after an Abort
+// returns nil because nothing was kept. Close is only concurrent with Abort
+// (besides Write) as described on Abort.
 func (w *Writer) Close() error { return w.terminate(false) }
 
-// Abort discards the recording: it interrupts a pending Write, kills the
-// encoder and removes the output file, even if frames were already written and
-// the encoder was healthy. A Close that is still draining is escalated to a
-// kill. Use Close to keep a video. It returns nil unless the encoder could not
-// be reaped or the file could not be removed, is safe concurrently with Write
-// and is idempotent.
+// Abort discards the recording. When it is the first terminal operation it
+// interrupts a pending Write, kills the encoder and removes the output file,
+// even if frames were already written and the encoder was healthy; use Close to
+// keep a video. It returns nil unless the encoder could not be reaped or the
+// file could not be removed. It is safe concurrently with Write and idempotent.
+//
+// If Abort arrives while a Close is still draining, it escalates that Close to
+// a kill and the output is removed, unless the encoder had already exited: an
+// exit observed first lets Close finish and keep the video. Close's result is
+// authoritative in that race, and the Abort call itself then returns nil. Abort
+// after Close has finished is a no-op.
 func (w *Writer) Abort() error { return w.terminate(true) }
 
 func (w *Writer) terminate(abort bool) error {
@@ -431,16 +439,7 @@ func (w *Writer) shutdown(abort bool) error {
 	if abort {
 		return w.discard()
 	}
-	timer := time.NewTimer(w.closeTimeout)
-	defer timer.Stop()
-	var err error
-	select {
-	case <-w.waitDone:
-	case <-timer.C:
-		err = fmt.Errorf("ffmpeg: encoder did not finish within %s; killed", w.closeTimeout)
-	case <-w.abortCh:
-		err = errors.New("ffmpeg: shutdown aborted; encoder killed")
-	}
+	err := w.awaitExit()
 	if err != nil {
 		_ = w.cmd.Process.Kill() // ErrProcessDone is harmless
 		kt := time.NewTimer(killTimeout)
@@ -473,6 +472,31 @@ func (w *Writer) shutdown(abort bool) error {
 		err = errors.Join(err, w.removeOutput())
 	}
 	return err
+}
+
+// awaitExit waits for the encoder to exit after EOF. It returns nil if the
+// process has exited, else the reason the wait was cut short (timeout or
+// Abort). An exit that is already visible wins over a timeout or Abort that
+// became ready at the same time; the remaining race is inherent and documented
+// on Abort.
+func (w *Writer) awaitExit() error {
+	timer := time.NewTimer(w.closeTimeout)
+	defer timer.Stop()
+	var err error
+	select {
+	case <-w.waitDone:
+		return nil
+	case <-timer.C:
+		err = fmt.Errorf("ffmpeg: encoder did not finish within %s; killed", w.closeTimeout)
+	case <-w.abortCh:
+		err = errors.New("ffmpeg: shutdown aborted; encoder killed")
+	}
+	select {
+	case <-w.waitDone:
+		return nil
+	default:
+		return err
+	}
 }
 
 // discard kills the encoder, waits for the reaper and removes the output.
