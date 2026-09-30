@@ -41,6 +41,7 @@ type Frame struct {
 }
 
 // Source has one sequential owner; cancellation must interrupt blocked I/O.
+// Cancellation errors wrap ctx.Err(), not a custom cancellation cause.
 // A failed Capture invalidates its borrowed frame. Close is idempotent.
 type Source interface {
 	Outputs(context.Context) ([]Output, error)
@@ -68,6 +69,7 @@ type VideoSettings struct {
 // Write consumes borrowed pixels before returning; it must not queue frames.
 // Close drains and finalizes the encoder with a bounded shutdown deadline.
 // Abort interrupts pending writes and is safe concurrently with Write.
+// Cancellation errors wrap ctx.Err(); unrelated failures must be preserved.
 // Write rejects width, height or format changes with ErrGeometryChanged.
 // Stride changes are allowed. Close and Abort are idempotent terminal operations;
 // Write after termination returns ErrClosed. Other methods have one owner.
