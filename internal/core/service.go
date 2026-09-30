@@ -28,9 +28,22 @@ func New(source ports.Source, png ports.ScreenshotWriter, video ports.VideoWrite
 }
 
 // Run validates selection and then takes one screenshot or records silent
-// fixed-rate video. Recording ends at the selection duration or when ctx is
-// cancelled; both finalize the file through VideoWriter.Close. Captures and
-// writes are sequential, so at most one is in flight.
+// fixed-rate video. Captures and writes are sequential, so at most one is in
+// flight, and frame storage is reused without copying.
+//
+// A timed recording (Duration > 0) encodes exactly ceil(Duration*FPS) frames,
+// so its encoded length is Duration rounded up to a frame. Wall time may run
+// longer when Capture or Write is slow: missed slots repeat the current frame
+// (at most two per fresh Capture) and the schedule then moves
+// forward, so a slow encoder lengthens the run instead of starving Capture.
+// The clock starts after Start and the first Write succeed.
+//
+// Cancelling ctx stops recording at the last frame already written and
+// finalizes through VideoWriter.Close. Nothing is written after cancellation.
+// Source and VideoWriter must report cancellation as ctx.Err() (or an error
+// wrapping only it); a failure joined with a context error, or a custom
+// cancellation cause, is treated as a real failure and returned.
+// A failure before the first frame is written aborts the file instead.
 func (s *Service) Run(ctx context.Context, selection ports.Selection) error {
 	if err := validateSelection(selection); err != nil {
 		return err
@@ -90,6 +103,11 @@ func (s *Service) abort(err error) error {
 	return err
 }
 
+// maxRepeatSlots bounds how many missed slots repeat the current frame before
+// the next fresh Capture. A larger lag moves the schedule forward instead, so
+// encoder backpressure becomes wall-time overrun rather than a stale-frame spiral.
+const maxRepeatSlots = 2
+
 // schedule maps elapsed time since the first frame to fixed-rate frame slots.
 // Slot n is due at n/fps. total is the slot count of a timed recording, or 0
 // when recording until cancellation.
@@ -116,22 +134,29 @@ func (sc schedule) due(n int64) time.Duration {
 	return time.Duration(q)*time.Second + time.Duration(r)*time.Second/time.Duration(sc.fps)
 }
 
-// current returns the slot containing now, limited to the last slot of a
-// timed recording. past reports that a timed recording's window has ended.
-func (sc schedule) current() (slot int64, past bool) {
+// slot returns the slot containing now, unclamped.
+func (sc schedule) slot() int64 {
 	elapsed := time.Since(sc.start)
 	secs, rem := int64(elapsed/time.Second), int64(elapsed%time.Second)
-	slot = secs*sc.fps + rem*sc.fps/int64(time.Second)
-	if sc.total > 0 && slot >= sc.total {
-		return sc.total - 1, true
+	return secs*sc.fps + rem*sc.fps/int64(time.Second)
+}
+
+// catchUp limits the lag of now behind slot next to maxRepeatSlots by moving
+// the schedule start forward. It returns the resulting current slot (>= next).
+func (sc *schedule) catchUp(next int64) int64 {
+	cur := max(sc.slot(), next)
+	if cur-next > maxRepeatSlots {
+		sc.start = sc.start.Add(time.Since(sc.start) - sc.due(next+maxRepeatSlots))
+		cur = max(sc.slot(), next)
 	}
-	return slot, false
+	return cur
 }
 
 // recordLoop fills slots 1.. after the already written first frame. A slot
 // missed because Capture or Write ran long reuses the current frame, which is
 // still valid until the next Capture, so the encoded duration stays exact
-// even when wall time overruns. A timed recording ends after ceil(duration*fps)
+// even when wall time overruns. At most maxRepeatSlots slots repeat per fresh
+// Capture; see catchUp. A timed recording ends after ceil(duration*fps)
 // frames, so a duration shorter than one frame interval encodes one frame and
 // returns without waiting. Cancellation ends the recording at the last frame
 // already written: nothing is written afterwards, because the writer is
@@ -158,8 +183,11 @@ func (s *Service) recordLoop(ctx context.Context, frame ports.Frame, sel ports.S
 			return nil
 		}
 
-		cur, past := sc.current()
-		cur = max(cur, next)
+		cur := sc.catchUp(next)
+		past := sc.total > 0 && cur >= sc.total
+		if past {
+			cur = sc.total - 1
+		}
 		// Slots already missed repeat the frame before it is invalidated.
 		last := cur - 1
 		if past {

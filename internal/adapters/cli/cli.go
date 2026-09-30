@@ -49,7 +49,7 @@ Commands:
   gui         open the capture control panel (default)
   outputs     list outputs
   screenshot  save a PNG screenshot
-  record      record silent video until interrupted or -duration elapses
+  record      record silent video until interrupted or target video length is reached
 
 Flags:
   -debug            enable debug logging (all commands)
@@ -58,7 +58,7 @@ Flags:
   -file PATH        new file to write, required (screenshot, record)
   -fps N            frames per second, 1..%d (record, default %d)
   -size WxH         scaled video size, both even, at most %d each (record, default source size)
-  -duration D       recording length such as 30s; 0 records until interrupted (record)
+  -duration D       encoded video length such as 30s; 0 records until interrupted (record)
 `, ports.MaxFPS, DefaultFPS, ports.MaxDimension)
 }
 

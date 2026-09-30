@@ -404,6 +404,66 @@ func TestRecordExactFrameCountWithSlowStartAndCapture(t *testing.T) {
 	}
 }
 
+// backpressure wires a slow Write and distinct capture storage, and reports
+// fresh captures, total writes and the longest run of repeated frames.
+type backpressure struct {
+	captures atomic.Int32
+	writes   atomic.Int32
+	maxRun   int
+	run      int
+	last     *byte
+}
+
+func (bp *backpressure) wire(h harness, start *mock.Call, slow time.Duration) {
+	h.src.EXPECT().Capture(mock.Anything, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
+		bp.captures.Add(1)
+		return newFrame(), nil
+	}).Maybe()
+	h.vid.EXPECT().Write(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, f ports.Frame) error {
+		time.Sleep(slow)
+		bp.writes.Add(1)
+		if &f.Pixels[0] == bp.last {
+			bp.run++
+		} else {
+			bp.run = 0
+		}
+		bp.maxRun = max(bp.maxRun, bp.run)
+		bp.last = &f.Pixels[0]
+		return nil
+	}).NotBefore(start).Maybe()
+}
+
+func TestRecordEncoderBackpressureKeepsCapturesFresh(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(2 * time.Second)
+	sel.Video.FPS = 60
+	start := recordOrder(h, sel)
+	var bp backpressure
+	bp.wire(h, start, 20*time.Millisecond)
+	h.vid.EXPECT().Close().Return(nil).Once()
+
+	require.NoError(t, h.svc.Run(context.Background(), sel))
+	assert.Equal(t, int32(120), bp.writes.Load(), "exact encoded length")
+	assert.GreaterOrEqual(t, bp.captures.Load(), int32(40), "captures must not starve")
+	assert.LessOrEqual(t, bp.maxRun, 2, "repeat backlog is bounded")
+}
+
+func TestRecordUntimedBackpressureBoundsRepeats(t *testing.T) {
+	h := newHarness(t)
+	sel := rec(0)
+	sel.Video.FPS = 60
+	ctx, cancel := context.WithCancel(context.Background())
+	start := recordOrder(h, sel)
+	var bp backpressure
+	bp.wire(h, start, 40*time.Millisecond) // slower than two slots per frame
+	h.vid.EXPECT().Close().Return(nil).Once()
+
+	time.AfterFunc(time.Second, cancel)
+	require.NoError(t, h.svc.Run(ctx, sel))
+	assert.Greater(t, bp.captures.Load(), int32(5))
+	assert.LessOrEqual(t, bp.maxRun, 3, "repeated writes between fresh captures")
+}
+
 func TestRecordCancelWritesNothingAfterStop(t *testing.T) {
 	h := newHarness(t)
 	sel := rec(0)
