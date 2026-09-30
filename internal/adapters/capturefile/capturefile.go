@@ -47,6 +47,13 @@ func create(path string, access int) (*os.File, *Reservation, error) {
 	return f, &Reservation{path: path, info: info}, nil
 }
 
+// Owns reports whether path still names the reserved file, so a moved and
+// replaced or deleted output is never reported as saved.
+func (r *Reservation) Owns() bool {
+	cur, err := os.Lstat(r.path)
+	return err == nil && os.SameFile(r.info, cur)
+}
+
 // Remove deletes the reserved file if path still names it. A missing path is
 // success; a path that now names a different file (the original was moved and
 // replaced) is left untouched and is not an error. There is an unavoidable

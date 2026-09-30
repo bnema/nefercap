@@ -663,6 +663,50 @@ func TestTerminalCleanupSparesReplacementFile(t *testing.T) {
 	}
 }
 
+func TestSuccessfulCloseReportsOnlyOwnedFile(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		change    func(t *testing.T, path, moved string)
+		wantSaved bool
+	}{
+		{"kept", func(*testing.T, string, string) {}, true},
+		{"moved and replaced", func(t *testing.T, path, moved string) {
+			if err := os.Rename(path, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("user data"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"deleted", func(t *testing.T, path, _ string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := helperWriter(t, "drain")
+			w.closeTimeout = 10 * time.Second
+			dir := t.TempDir()
+			path := filepath.Join(dir, "v.mp4")
+			f := newFrame(4, 4, 16, 0)
+			if err := w.Start(context.Background(), f, path, settings()); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Write(context.Background(), f); err != nil {
+				t.Fatal(err)
+			}
+			tc.change(t, path, filepath.Join(dir, "moved.mp4"))
+			if err := w.Close(); err != nil {
+				t.Fatalf("Close = %v", err)
+			}
+			if w.Saved != tc.wantSaved {
+				t.Fatalf("Saved = %v, want %v", w.Saved, tc.wantSaved)
+			}
+		})
+	}
+}
+
 func TestRealFFmpeg(t *testing.T) {
 	bin, err := exec.LookPath("ffmpeg")
 	if err != nil {

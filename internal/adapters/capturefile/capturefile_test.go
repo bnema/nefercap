@@ -93,3 +93,28 @@ func TestRemoveLeavesReplacement(t *testing.T) {
 		t.Fatalf("moved original touched: %v", err)
 	}
 }
+
+func TestOwnsOnlyTheReservedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a")
+	f, res, err := Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if !res.Owns() {
+		t.Fatal("reserved file not owned")
+	}
+	if err := os.Rename(path, filepath.Join(dir, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if res.Owns() {
+		t.Fatal("missing path reported as owned")
+	}
+	if err := os.WriteFile(path, []byte("user"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res.Owns() {
+		t.Fatal("replacement reported as owned")
+	}
+}

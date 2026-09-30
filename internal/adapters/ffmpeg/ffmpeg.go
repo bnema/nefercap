@@ -475,7 +475,7 @@ func (w *Writer) shutdown(abort bool) error {
 	if err != nil {
 		err = errors.Join(err, w.removeOutput())
 	} else {
-		w.Saved = true
+		w.Saved = w.res.Owns()
 	}
 	return err
 }
