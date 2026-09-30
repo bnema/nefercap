@@ -55,7 +55,7 @@ type Options struct {
 func Usage() string {
 	return fmt.Sprintf(`Usage: nefercap [command] [flags]
 
-Interactive commands (layer-shell selector over the current output):
+Interactive commands (layer-shell selector over the connected outputs):
   shot        select what to capture and save a PNG (default)
   rec         select what to record; run again while recording to stop it
   stop        stop the active recording
@@ -68,8 +68,11 @@ Selector keys and mouse:
   m           choose the whole monitor, Enter confirms
   w           choose the current workspace when known, click or Enter confirms
   1..9        pick that whole monitor from any overlay
-  g           toggle rule-of-thirds guides
+  g           toggle full-monitor center and thirds guides (on by default)
   Escape      cancel
+
+Selector config: $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config)
+  selector.grid = off   hide guides on startup; G still toggles them
 
 Script commands (never open the selector):
   outputs     list outputs

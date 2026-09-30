@@ -2,6 +2,7 @@ package selection
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/bnema/nefergui"
@@ -33,6 +34,12 @@ type model struct {
 	picker core.Picker
 	sized  bool
 	w, h   int
+	scale  float64 // fractional output scale from OnResize; 0 before the first resize
+
+	// The monitor grid belongs to the overlay, not the picker: Begin resets
+	// the picker on a size change but the user's toggle must survive it.
+	grid      bool
+	gridLines [core.GridLineCount]frect // whole-monitor guides, logical units
 
 	end  endKind
 	sess *session // shared first-decision record; the only cross-overlay state
@@ -43,23 +50,80 @@ type model struct {
 	label      label
 }
 
-func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session) *model {
-	return &model{mode: mode, outputs: outputs, index: index, sess: sess, header: headerText(outputs, index), footerText: footerText(mode)}
+func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
+	return &model{mode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode)}
 }
 
-// resize (re)starts the picker when the logical output size changes. It is
-// the OnResize callback; scale-only changes keep the current pick.
-func (m *model) resize(w, h int, _ float64) {
+// resize is the OnResize callback. A logical size change (re)starts the
+// picker; a scale-only change keeps the current pick. Either way the grid is
+// laid out again on this output's physical pixels.
+func (m *model) resize(w, h int, scale float64) {
 	if m.sized && w == m.w && h == m.h {
+		m.scale = scale
+		m.layoutGrid()
 		return
 	}
 	if err := m.picker.Begin(m.outputs[m.index].ID, w, h); err != nil {
 		m.fail(fmt.Errorf("resize to %dx%d: %w", w, h, err))
 		return
 	}
-	m.sized, m.w, m.h = true, w, h
+	m.sized, m.w, m.h, m.scale = true, w, h, scale
 	m.label.clear()
 	m.picker.SetWorkspace(m.workspace.ID, m.workspace.Region)
+	m.layoutGrid()
+}
+
+// layoutGrid derives the logical guide rectangles from exact physical lines:
+// snapping happens in physical pixels, and only then is each edge divided by
+// the scale, so the renderer's edge rounding returns the same whole pixels. An
+// unusable scale draws no grid instead of ending the selection.
+//
+// The lines follow the output mode when it explains the surface, because that
+// is the monitor the user sees: a fractional scale rounds the logical size, so
+// the surface buffer can be a pixel larger than the mode and the compositor
+// crops that pixel. Otherwise (unknown, stale or unrelated mode) they follow
+// the surface buffer, core.MonitorGrid.
+func (m *model) layoutGrid() {
+	m.gridLines = [core.GridLineCount]frect{}
+	lines, err := m.physicalGrid()
+	if err != nil {
+		return
+	}
+	for i, r := range lines {
+		m.gridLines[i] = frect{
+			float64(r.Min.X) / m.scale, float64(r.Min.Y) / m.scale,
+			float64(r.Dx()) / m.scale, float64(r.Dy()) / m.scale,
+		}
+	}
+}
+
+// physicalGrid is the grid in physical pixels; see layoutGrid.
+func (m *model) physicalGrid() (core.GridLines, error) {
+	buffer, err := core.MonitorGrid(m.w, m.h, m.scale)
+	if err != nil {
+		return buffer, err
+	}
+	bw, _ := core.PhysicalExtent(m.w, m.scale)
+	bh, _ := core.PhysicalExtent(m.h, m.scale)
+	out := m.outputs[m.index]
+	// A rotated output reports its mode unrotated, so try both orientations.
+	for _, mode := range [2][2]int{{out.Width, out.Height}, {out.Height, out.Width}} {
+		if modeFits(mode[0], m.w, bw, m.scale) && modeFits(mode[1], m.h, bh, m.scale) {
+			if lines, err := core.MonitorGridPhysical(mode[0], mode[1]); err == nil {
+				return lines, nil
+			}
+		}
+	}
+	return buffer, nil
+}
+
+// modeFits reports whether a physical mode extent is what the compositor shows
+// of a surface axis: the logical size is the mode divided by the scale and
+// rounded, and the buffer is the same size or one pixel larger, which the
+// compositor crops instead of resampling. Anything else (an unknown or stale
+// mode, a rounding gap, a buffer smaller than the mode) is not trusted.
+func modeFits(mode, logical, buffer int, scale float64) bool {
+	return mode > 0 && int(math.Round(float64(mode)/scale)) == logical && buffer-mode >= 0 && buffer-mode <= 1
 }
 
 // setWorkspaces keeps the workspace that is currently displayed on this
@@ -99,7 +163,7 @@ type visible struct {
 
 func (m *model) snapshot() visible {
 	r, _ := m.picker.Rect()
-	return visible{r, m.picker.Dragging(), m.picker.Kind(), m.picker.Grid(), m.picker.Status()}
+	return visible{r, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status()}
 }
 
 // input is the OnInput callback. It reports whether the drawn state changed,
@@ -147,7 +211,7 @@ func (m *model) key(name string) {
 	case "r", "R":
 		m.picker.SelectRegion()
 	case "g", "G":
-		m.picker.ToggleGrid()
+		m.grid = !m.grid
 	case "Return", "KP_Enter":
 		m.picker.Confirm()
 	default:

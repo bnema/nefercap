@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"math"
 	"strings"
 	"testing"
 
@@ -29,7 +31,7 @@ func testSession() (*session, context.Context) {
 func newTestModel(t *testing.T) *model {
 	t.Helper()
 	sess, _ := testSession()
-	m := newModel(ports.Screenshot, testOutputs, 0, sess)
+	m := newModel(ports.Screenshot, testOutputs, 0, sess, false)
 	m.resize(1920, 1080, 1)
 	require.Equal(t, core.PickActive, m.picker.Status())
 	return m
@@ -38,7 +40,7 @@ func newTestModel(t *testing.T) *model {
 // newBareModel has no size yet, like an overlay before its first configure.
 func newBareModel() (*model, context.Context) {
 	sess, ctx := testSession()
-	return newModel(ports.Screenshot, testOutputs, 0, sess), ctx
+	return newModel(ports.Screenshot, testOutputs, 0, sess, false), ctx
 }
 
 func motion(x, y float64) nefergui.InputEvent {
@@ -80,7 +82,7 @@ func TestClickAcceptsMonitor(t *testing.T) {
 	require.Equal(t, endAccepted, m.end)
 	res, _, _ := m.sess.outcome(context.Background())
 	assert.Equal(t, core.PickMonitor, res.Kind)
-	sel := New(ports.Screenshot, ports.VideoSettings{}, nil).selection(res)
+	sel := New(ports.Screenshot, ports.VideoSettings{}, nil, false).selection(res)
 	assert.Equal(t, ports.Target{OutputID: 7}, sel.Target)
 }
 
@@ -97,7 +99,7 @@ func TestMonitorKeyThenEnter(t *testing.T) {
 
 func TestEscapeAbortsEveryOverlay(t *testing.T) {
 	sess, ctx := testSession()
-	m := newModel(ports.Screenshot, testOutputs, 1, sess)
+	m := newModel(ports.Screenshot, testOutputs, 1, sess, false)
 	m.resize(1280, 720, 1)
 	m.input(key("Escape"))
 	assert.Equal(t, endCanceled, m.end)
@@ -117,7 +119,7 @@ func TestDigitPicksMonitorFromAnyOverlay(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, core.PickResult{OutputID: 9, Kind: core.PickMonitor}, res)
-	sel := New(ports.Screenshot, ports.VideoSettings{}, nil).selection(res)
+	sel := New(ports.Screenshot, ports.VideoSettings{}, nil, false).selection(res)
 	assert.Equal(t, ports.Target{OutputID: 9}, sel.Target)
 
 	own := newTestModel(t)
@@ -179,7 +181,7 @@ func TestInputResetBeforeThresholdAndKeepsChoices(t *testing.T) {
 	assert.Equal(t, endNone, m.end)
 
 	assert.Equal(t, core.PickWorkspace, m.picker.Kind(), "kind survives a reset")
-	assert.True(t, m.picker.Grid(), "grid survives a reset")
+	assert.True(t, m.grid, "grid survives a reset")
 	id, _, ok := m.picker.Workspace()
 	assert.True(t, ok)
 	assert.Equal(t, uint64(11), id, "workspace survives a reset")
@@ -189,7 +191,7 @@ func TestInputResetBeforeThresholdAndKeepsChoices(t *testing.T) {
 	res, ok, err := m.sess.outcome(context.Background())
 	require.NoError(t, err)
 	require.True(t, ok)
-	sel := New(ports.Screenshot, ports.VideoSettings{}, ws).selection(res)
+	sel := New(ports.Screenshot, ports.VideoSettings{}, ws, false).selection(res)
 	assert.Equal(t, ports.Target{OutputID: 7, WorkspaceID: 11}, sel.Target, "a workspace has a stable ID and a zero Region")
 }
 
@@ -239,7 +241,7 @@ func TestWorkspaceOnlyWhenRealAndOnThisOutput(t *testing.T) {
 	res, _, _ := m.sess.outcome(context.Background())
 	assert.Equal(t, core.PickWorkspace, res.Kind)
 	assert.Equal(t, uint64(11), res.WorkspaceID)
-	sel := New(ports.Screenshot, ports.VideoSettings{}, ws).selection(res)
+	sel := New(ports.Screenshot, ports.VideoSettings{}, ws, false).selection(res)
 	assert.Equal(t, ports.Target{OutputID: 7, WorkspaceID: 11}, sel.Target, "workspace geometry is live from the compositor, not a cached crop")
 }
 
@@ -266,7 +268,7 @@ func TestOnlyTheActiveWorkspaceIsOffered(t *testing.T) {
 }
 
 func TestSelectionConversionUsesCoreTarget(t *testing.T) {
-	s := New(ports.Screenshot, ports.VideoSettings{}, nil)
+	s := New(ports.Screenshot, ports.VideoSettings{}, nil, false)
 	region := ports.Region{X: 10, Y: 20, Width: 300, Height: 200}
 	assert.Equal(t, ports.Target{OutputID: 7, Region: region},
 		s.selection(core.PickResult{OutputID: 7, Kind: core.PickRegion, Region: region}).Target, "a dragged region keeps its geometry")
@@ -277,14 +279,14 @@ func TestSelectionConversionUsesCoreTarget(t *testing.T) {
 }
 
 func TestNewSelectionDefaults(t *testing.T) {
-	sel := New(ports.Record, ports.VideoSettings{}, nil).selection(core.PickResult{OutputID: 7, Kind: core.PickMonitor})
+	sel := New(ports.Record, ports.VideoSettings{}, nil, false).selection(core.PickResult{OutputID: 7, Kind: core.PickMonitor})
 	assert.Equal(t, ports.Record, sel.Mode)
 	assert.Equal(t, DefaultFPS, sel.Video.FPS)
 	assert.Empty(t, sel.Path)
 
 	custom := ports.VideoSettings{FPS: 60, Width: 640, Height: 360}
-	assert.Equal(t, custom, New(ports.Record, custom, nil).selection(core.PickResult{}).Video)
-	assert.Equal(t, ports.VideoSettings{}, New(ports.Screenshot, custom, nil).selection(core.PickResult{}).Video)
+	assert.Equal(t, custom, New(ports.Record, custom, nil, false).selection(core.PickResult{}).Video)
+	assert.Equal(t, ports.VideoSettings{}, New(ports.Screenshot, custom, nil, false).selection(core.PickResult{}).Video)
 }
 
 func TestSelectRejectsTooManyOutputsWithoutOpeningAnything(t *testing.T) {
@@ -292,13 +294,13 @@ func TestSelectRejectsTooManyOutputsWithoutOpeningAnything(t *testing.T) {
 	for i := range outs {
 		outs[i] = ports.Output{ID: uint32(i + 1), Name: "O"}
 	}
-	_, ok, err := New(ports.Screenshot, ports.VideoSettings{}, nil).Select(context.Background(), outs)
+	_, ok, err := New(ports.Screenshot, ports.VideoSettings{}, nil, false).Select(context.Background(), outs)
 	assert.False(t, ok)
 	assert.ErrorIs(t, err, ErrTooManyOutputs)
 }
 
 func TestSelectRejectsBadInput(t *testing.T) {
-	s := New(ports.Screenshot, ports.VideoSettings{}, nil)
+	s := New(ports.Screenshot, ports.VideoSettings{}, nil, false)
 	_, ok, err := s.Select(context.Background(), nil)
 	assert.False(t, ok)
 	assert.ErrorIs(t, err, ports.ErrOutputNotFound)
@@ -422,7 +424,171 @@ func TestSceneMonitorOutlineAndGrid(t *testing.T) {
 	assert.Equal(t, [4]frect{}, s.dim, "monitor choice is not dimmed")
 	assert.Equal(t, frect{0, 0, 1920, 1}, s.edges[0])
 	assert.Equal(t, frect{640, 0, 1, 1080}, s.grid[0])
-	assert.Equal(t, frect{0, 720, 1920, 1}, s.grid[3])
+	assert.Equal(t, frect{0, 720, 1920, 1}, s.grid[5])
+}
+
+// physicalEdges converts a logical rectangle the way the renderer does:
+// each edge is rounded to a physical pixel independently.
+func physicalEdges(r frect, scale float64) image.Rectangle {
+	return image.Rect(
+		int(math.Round(r.x*scale)), int(math.Round(r.y*scale)),
+		int(math.Round((r.x+r.w)*scale)), int(math.Round((r.y+r.h)*scale)))
+}
+
+func gridModel(t *testing.T, grid bool, w, h int, scale float64) *model {
+	t.Helper()
+	sess, _ := testSession()
+	m := newModel(ports.Screenshot, testOutputs, 0, sess, grid)
+	m.resize(w, h, scale)
+	require.Equal(t, core.PickActive, m.picker.Status())
+	return m
+}
+
+func TestGridDefaultAndToggle(t *testing.T) {
+	on := gridModel(t, true, 1920, 1080, 1)
+	assert.NotEqual(t, [core.GridLineCount]frect{}, on.scene().grid, "configured on: drawn at once")
+	assert.True(t, on.input(key("g")))
+	assert.Equal(t, [core.GridLineCount]frect{}, on.scene().grid, "G turns it off")
+	assert.True(t, on.input(key("G")))
+	assert.NotEqual(t, [core.GridLineCount]frect{}, on.scene().grid, "and on again")
+
+	off := gridModel(t, false, 1920, 1080, 1)
+	assert.Equal(t, [core.GridLineCount]frect{}, off.scene().grid, "configured off: nothing drawn")
+	assert.True(t, off.input(key("g")))
+	assert.NotEqual(t, [core.GridLineCount]frect{}, off.scene().grid)
+}
+
+func TestGridRendersExactPhysicalPixels(t *testing.T) {
+	for _, c := range []struct {
+		w, h  int
+		scale float64
+	}{
+		{1920, 1080, 1}, {1600, 900, 1.2}, {1536, 864, 1.25}, {1280, 720, 1.5}, {960, 540, 2},
+		{1366, 768, 1}, {1367, 769, 1.25}, {1001, 601, 1.2}, {1279, 719, 1.5}, {853, 481, 2.25},
+	} {
+		m := gridModel(t, true, c.w, c.h, c.scale)
+		want, err := core.MonitorGrid(c.w, c.h, c.scale)
+		require.NoError(t, err)
+		for i, r := range m.scene().grid {
+			got := physicalEdges(r, c.scale)
+			assert.Equal(t, want[i], got, "%dx%d@%g line %d", c.w, c.h, c.scale, i)
+			if i < 3 {
+				assert.Equal(t, 1, got.Dx(), "%dx%d@%g vertical %d is one physical pixel", c.w, c.h, c.scale, i)
+			} else {
+				assert.Equal(t, 1, got.Dy(), "%dx%d@%g horizontal %d is one physical pixel", c.w, c.h, c.scale, i)
+			}
+		}
+	}
+}
+
+func TestGridSweepRendersOnePhysicalPixel(t *testing.T) {
+	// Every compositor fractional scale (k/120) over many logical sizes.
+	for k := 120; k <= 360; k++ {
+		scale := float64(k) / 120
+		for w := 640; w <= 3000; w += 37 {
+			h := w*9/16 + 1
+			m := gridModel(t, true, w, h, scale)
+			want, err := core.MonitorGrid(w, h, scale)
+			require.NoError(t, err)
+			for i, r := range m.scene().grid {
+				if got := physicalEdges(r, scale); got != want[i] {
+					t.Fatalf("%dx%d@%d/120 line %d renders %v, want %v", w, h, k, i, got, want[i])
+				}
+			}
+		}
+	}
+}
+
+func TestGridIsPerOutputScale(t *testing.T) {
+	sess, _ := testSession()
+	a := newModel(ports.Screenshot, testOutputs, 0, sess, true)
+	b := newModel(ports.Screenshot, testOutputs, 1, sess, true)
+	a.resize(1920, 1080, 1)
+	b.resize(1280, 720, 1.5)
+	assert.Equal(t, frect{640, 0, 1, 1080}, a.scene().grid[0])
+	assert.Equal(t, frect{640 / 1.5, 0, 1 / 1.5, 1080 / 1.5}, b.scene().grid[0], "physical 640 of 1920 on the scaled output")
+	assert.Equal(t, image.Rect(640, 0, 641, 1080), physicalEdges(b.scene().grid[0], 1.5))
+}
+
+func TestGridStaysOnWholeMonitorWhileDragging(t *testing.T) {
+	m := gridModel(t, true, 1920, 1080, 1)
+	idle := m.scene().grid
+	m.input(button(100, 50, true))
+	m.input(motion(300, 250))
+	require.True(t, m.picker.Dragging())
+	assert.Equal(t, idle, m.scene().grid, "the drag does not move the grid")
+	m.input(motion(1000, 700))
+	assert.Equal(t, idle, m.scene().grid)
+	m.input(key("m"))
+	m.input(key("r"))
+	assert.Equal(t, idle, m.scene().grid, "nor does a kind change")
+	m.input(button(1000, 700, false))
+	assert.Equal(t, core.PickAccepted, m.picker.Status())
+}
+
+func TestGridToggleSurvivesResizeAndScaleChange(t *testing.T) {
+	m := gridModel(t, true, 1920, 1080, 1)
+	m.input(key("g"))
+	require.False(t, m.grid)
+	m.resize(1280, 720, 1.5) // size change resets the picker, not the toggle
+	assert.False(t, m.grid)
+	assert.Equal(t, [core.GridLineCount]frect{}, m.scene().grid)
+	m.input(key("g"))
+	m.resize(1280, 720, 2) // scale only
+	assert.True(t, m.grid)
+	m.resize(1600, 900, 1.2)
+	assert.True(t, m.grid)
+}
+
+func TestGridScaleOnlyChangeKeepsPickAndRelays(t *testing.T) {
+	m := gridModel(t, true, 1920, 1080, 1)
+	m.input(button(10, 10, true))
+	m.input(motion(200, 200))
+	before := m.scene().grid
+	m.resize(1920, 1080, 1.25)
+	assert.True(t, m.picker.Dragging(), "a scale-only change keeps the drag")
+	after := m.scene().grid
+	assert.NotEqual(t, before, after, "the grid follows the new scale")
+	want, err := core.MonitorGrid(1920, 1080, 1.25)
+	require.NoError(t, err)
+	for i, r := range after {
+		assert.Equal(t, want[i], physicalEdges(r, 1.25), "line %d", i)
+	}
+}
+
+func TestGridBadScaleDrawsNothingAndKeepsSelecting(t *testing.T) {
+	for _, scale := range []float64{0, -1, math.NaN(), math.Inf(1), 100} {
+		m := gridModel(t, true, 1920, 1080, scale)
+		assert.Equal(t, endNone, m.end, "scale %v", scale)
+		assert.Equal(t, [core.GridLineCount]frect{}, m.scene().grid, "scale %v", scale)
+	}
+}
+
+func TestGridAllocations(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector adds allocations")
+	}
+	m := gridModel(t, true, 1600, 900, 1.2)
+	var s scene
+	n := testing.AllocsPerRun(200, func() {
+		s = m.scene()
+		m.input(key("g"))
+		m.input(key("g"))
+		m.resize(1600, 900, 1.2)
+	})
+	assert.Zero(t, n, "grid toggle, relayout and scene do not allocate")
+	_ = s
+}
+
+func BenchmarkGridResizeScene(b *testing.B) {
+	sess, _ := testSession()
+	m := newModel(ports.Screenshot, testOutputs, 0, sess, true)
+	m.resize(1600, 900, 1.2)
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		m.resize(1600, 900, 1.2+float64(i%2)*0.05)
+		_ = m.scene()
+	}
 }
 
 func TestLabelPlacementStaysOnSurface(t *testing.T) {

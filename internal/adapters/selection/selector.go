@@ -48,6 +48,7 @@ type Selector struct {
 	mode       ports.Mode
 	video      ports.VideoSettings
 	workspaces []ports.Workspace
+	grid       bool
 }
 
 var _ ports.Selector = (*Selector)(nil)
@@ -56,17 +57,18 @@ var _ ports.Selector = (*Selector)(nil)
 // becomes DefaultFPS. workspaces is native compositor metadata: the W key is
 // offered only for the Active workspace with a valid (nonzero) ID on the output
 // an overlay covers. Hidden workspaces are never offered and nothing is
-// invented when no workspace qualifies. The caller assigns
+// invented when no workspace qualifies. grid is the initial state of the
+// whole-monitor guides; the G key toggles them per overlay. The caller assigns
 // Selection.Path. The first output passed to Select opens first, so the caller
 // orders outputs to put the preferred one first.
-func New(mode ports.Mode, video ports.VideoSettings, workspaces []ports.Workspace) *Selector {
+func New(mode ports.Mode, video ports.VideoSettings, workspaces []ports.Workspace, grid bool) *Selector {
 	if mode == ports.Record && video.FPS == 0 {
 		video.FPS = DefaultFPS
 	}
 	if mode != ports.Record {
 		video = ports.VideoSettings{}
 	}
-	return &Selector{mode: mode, video: video, workspaces: append([]ports.Workspace(nil), workspaces...)}
+	return &Selector{mode: mode, video: video, workspaces: append([]ports.Workspace(nil), workspaces...), grid: grid}
 }
 
 // Select blocks until the user accepts a selection (true), aborts with Escape
@@ -104,7 +106,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	sess := newSession(cancel)
 	var wg sync.WaitGroup
 	for i := range outputs {
-		m := newModel(s.mode, outputs, i, sess)
+		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
 		wg.Add(1)
 		go func() {

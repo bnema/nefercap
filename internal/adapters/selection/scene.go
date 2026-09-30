@@ -35,9 +35,9 @@ type frect struct{ x, y, w, h float64 }
 // scene is the complete geometry of one frame, derived from the picker. It is
 // a plain value so computing it never allocates.
 type scene struct {
-	dim    [4]frect // top, bottom, left, right of the selection; dim[0] is all when none
-	edges  [4]frect // top, bottom, left, right lines
-	grid   [4]frect // two vertical then two horizontal thirds lines
+	dim    [4]frect                  // top, bottom, left, right of the selection; dim[0] is all when none
+	edges  [4]frect                  // top, bottom, left, right lines
+	grid   [core.GridLineCount]frect // whole-monitor guides: three vertical then three horizontal
 	label  frect
 	header frect
 	footer frect
@@ -86,17 +86,8 @@ func (m *model) scene() scene {
 			{fr.x + fr.w - edge, fr.y, edge, fr.h},
 		}
 	}
-	if m.picker.Grid() {
-		g := frect{0, 0, w, h}
-		if outline {
-			g = fr
-		}
-		s.grid = [4]frect{
-			{g.x + g.w/3, g.y, edge, g.h},
-			{g.x + 2*g.w/3, g.y, edge, g.h},
-			{g.x, g.y + g.h/3, g.w, edge},
-			{g.x, g.y + 2*g.h/3, g.w, edge},
-		}
+	if m.grid {
+		s.grid = m.gridLines // the whole monitor, whatever is being dragged
 	}
 	if m.label.text != "" && outline {
 		s.label = labelRect(fr, w, h)

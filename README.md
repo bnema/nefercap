@@ -18,8 +18,16 @@ make bin
 - **Click:** capture the monitor; small pointer jitter counts as a click.
 - **M, then Enter:** select the monitor.
 - **W, then Enter:** select the current workspace when native workspace metadata is available.
-- **R:** return to rectangle selection. **G:** toggle thirds guides.
+- **R:** return to rectangle selection. **G:** toggle full-monitor center and thirds guides.
 - **1–9:** select that monitor. **Esc:** cancel without creating a capture.
+
+The guides are visible by default: three vertical and three horizontal black lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. To hide them on startup, set this in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
+
+```ini
+selector.grid = off
+```
+
+Use `on` to enable them. The config accepts this setting once, blank lines and `#` comment lines; unknown keys, duplicates and invalid values are errors. **G** changes visibility for the current monitor's overlay without rewriting the config. Selection dimensions are logical pixels; the captured file's dimensions depend on the monitor scaling.
 
 A screenshot saves immediately. Recording displays a red border around the visible target and a small **REC / Stop** HUD. Both are excluded from nefercap's video. The HUD takes no keyboard focus; clicks outside Stop pass through. Press the recording shortcut again, click Stop, or run `nefercap stop` to finish the file.
 

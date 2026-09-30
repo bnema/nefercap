@@ -94,7 +94,6 @@ type Picker struct {
 	rect   ports.Region
 	pressed,
 	dragging bool
-	grid bool
 
 	wsID   uint64
 	wsRect ports.Region
@@ -128,9 +127,6 @@ func (p *Picker) Rect() (r ports.Region, ok bool) { return p.rect, p.dragging }
 
 // Bounds returns the output logical size.
 func (p *Picker) Bounds() (width, height int) { return p.width, p.height }
-
-// Grid reports whether the thirds guides are on.
-func (p *Picker) Grid() bool { return p.grid }
 
 // Workspace returns the supplied workspace identity and its rectangle
 // clipped to the output; ok is false when none is available.
@@ -182,15 +178,6 @@ func (p *Picker) setKind(k PickKind) bool {
 		return false
 	}
 	p.kind = k
-	return true
-}
-
-// ToggleGrid flips the thirds guides.
-func (p *Picker) ToggleGrid() bool {
-	if p.status != PickActive {
-		return false
-	}
-	p.grid = !p.grid
 	return true
 }
 
@@ -261,7 +248,7 @@ func (p *Picker) MouseUp(x, y float64) bool {
 // AbandonPress drops an unfinished press and any drag preview, for example
 // when the pointer leaves the surface or input focus is lost, so a button
 // release that is never delivered cannot leave the picker stuck. The chosen
-// kind, grid and workspace are kept and the status stays PickActive. It does
+// kind and workspace are kept and the status stays PickActive. It does
 // nothing after acceptance or cancellation. It reports whether state changed.
 func (p *Picker) AbandonPress() bool {
 	if p.status != PickActive || !(p.pressed || p.dragging || p.rect != (ports.Region{})) {

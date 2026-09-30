@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/bnema/nefercap/internal/adapters/cli"
+	"github.com/bnema/nefercap/internal/adapters/config"
 	"github.com/bnema/nefercap/internal/adapters/control"
 	"github.com/bnema/nefercap/internal/adapters/destination"
 	"github.com/bnema/nefercap/internal/adapters/selection"
@@ -35,7 +36,11 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 		}
 		return ports.Selection{}, false, fmt.Errorf("list workspace capture targets: %w", err)
 	}
-	sel, accepted, err := selection.New(mode, options.Video, workspaces).Select(ctx, outputs)
+	settings, err := config.Load()
+	if err != nil {
+		return ports.Selection{}, false, fmt.Errorf("load selector config: %w", err)
+	}
+	sel, accepted, err := selection.New(mode, options.Video, workspaces, settings.Grid).Select(ctx, outputs)
 	if err != nil || !accepted {
 		return ports.Selection{}, false, err
 	}

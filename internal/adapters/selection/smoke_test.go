@@ -34,7 +34,7 @@ func TestSmokeSelect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	peak := samplePeakRSS(ctx)
-	sel, ok, err := New(ports.Record, ports.VideoSettings{}, nil).Select(ctx, outs)
+	sel, ok, err := New(ports.Record, ports.VideoSettings{}, nil, false).Select(ctx, outs)
 	cancel()
 	fmt.Printf("SMOKE outputs=%d peak_rss_kib=%d\n", len(outs), <-peak)
 	require.NoError(t, err)

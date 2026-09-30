@@ -53,6 +53,6 @@ func tag(st nefergui.Node, key string, r frect) tagged {
 // Static keys avoid building identity strings per frame.
 var (
 	dimKeys  = [4]string{"dim0", "dim1", "dim2", "dim3"}
-	gridKeys = [4]string{"grid0", "grid1", "grid2", "grid3"}
+	gridKeys = [6]string{"grid0", "grid1", "grid2", "grid3", "grid4", "grid5"}
 	edgeKeys = [4]string{"edge0", "edge1", "edge2", "edge3"}
 )
