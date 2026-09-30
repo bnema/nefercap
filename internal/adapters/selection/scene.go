@@ -104,7 +104,7 @@ func (m *model) scene() scene {
 		s.label = labelRect(fr, w, h)
 	}
 	hw, hh := min(headerWidth(m.header), w), min(headerH, h)
-	s.header = frect{min(margin, max(w-hw, 0)), min(margin, max(h-hh, 0)), hw, hh}
+	s.header = frect{max(w-hw-margin, 0), min(margin, max(h-hh, 0)), hw, hh}
 	// Keep workspace dimensions clear of the output header; region and
 	// monitor labels retain their independent placement.
 	if m.picker.Kind() == core.PickWorkspace && s.label.w > 0 &&

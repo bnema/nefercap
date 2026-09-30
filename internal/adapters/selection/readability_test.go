@@ -71,9 +71,36 @@ func TestWorkspaceLabelAvoidsOutputHeader(t *testing.T) {
 	m.input(key("w"))
 	s := m.scene()
 	assert.Equal(t, "640 × 360", m.label.text)
-	assert.GreaterOrEqual(t, s.label.y, s.header.y+s.header.h)
-	assert.GreaterOrEqual(t, s.label.y, 60.0, "label falls inside the workspace")
+	assert.True(t, s.label.x+s.label.w <= s.header.x || s.label.x >= s.header.x+s.header.w ||
+		s.label.y+s.label.h <= s.header.y || s.label.y >= s.header.y+s.header.h, "label and header must not overlap")
 	assert.LessOrEqual(t, s.label.y+s.label.h, 480.0)
+}
+
+func TestRightWorkspaceLabelAvoidsOutputHeader(t *testing.T) {
+	m, _ := newBareModel()
+	m.setWorkspaces([]ports.Workspace{{ID: 11, OutputID: 7, Active: true, Region: ports.Region{X: 470, Y: 60, Width: 170, Height: 360}}})
+	m.resize(640, 480, 1)
+	m.input(key("w"))
+	s := m.scene()
+	assert.Greater(t, s.label.x+s.label.w, s.header.x, "label shares the header's horizontal range")
+	assert.Less(t, s.label.x, s.header.x+s.header.w)
+	assert.GreaterOrEqual(t, s.label.y, s.header.y+s.header.h, "collision moves dimensions below the header")
+	assert.GreaterOrEqual(t, s.label.y, 60.0, "dimensions move inside the workspace")
+}
+
+func TestOutputHeaderAtTopRight(t *testing.T) {
+	for _, width := range []int{1920, 640, 200, 20} {
+		m := newTestModel(t)
+		m.resize(width, 480, 1)
+		s := m.scene()
+		wantRightGap := min(margin, float64(width)-s.header.w)
+		assert.Equal(t, float64(width)-wantRightGap, s.header.x+s.header.w)
+		assert.GreaterOrEqual(t, s.header.x, 0.0)
+	}
+	m := newTestModel(t)
+	m.input(key("m"))
+	s := m.scene()
+	assert.Less(t, s.label.x+s.label.w, s.header.x, "monitor dimensions stay left of the output details")
 }
 
 func TestFooterUnchangedAllocations(t *testing.T) {
