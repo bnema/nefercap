@@ -15,7 +15,7 @@ func toggleModel(t *testing.T, mode ports.Mode, toggle bool) *model {
 	m := newTestModel(t)
 	m.base, m.mode, m.toggle = mode, mode, toggle
 	m.footerMode = mode
-	m.footerText = footerText(mode, core.PickRegion, false, toggle)
+	m.footerText = footerText(mode, core.PickRegion, false, toggle, false)
 	return m
 }
 

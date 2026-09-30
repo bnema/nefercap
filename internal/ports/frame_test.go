@@ -27,7 +27,7 @@ func TestFrameValidation(t *testing.T) {
 		{"excessive stride", Frame{Width: 1, Height: 2, Stride: MaxFrameBytes/2 + 4}, "invalid frame stride", nil},
 		{"overflow stride", Frame{Width: 1, Height: 2, Stride: int(^uint(0)>>1) &^ 3}, "invalid frame stride", nil},
 		{"unsupported format", Frame{Width: 1, Height: 1, Stride: 4, Pixels: make([]byte, 4), Format: 42}, "", ErrUnsupportedFormat},
-		{"short storage", Frame{Width: 2, Height: 2, Stride: 12, Pixels: make([]byte, 23)}, "short frame storage", nil},
+		{"short storage", Frame{Width: 2, Height: 2, Stride: 12, Pixels: make([]byte, 19)}, "short frame storage", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,9 +53,8 @@ func TestFrameRow(t *testing.T) {
 	if got := f.Row(0); len(got) != 4 || got[0] != 1 {
 		t.Fatalf("row: %v", got)
 	}
-	f.YInvert = true
-	if got := f.Row(0); len(got) != 4 || got[0] != 5 {
-		t.Fatalf("inverted row: %v", got)
+	if got := f.Row(1); len(got) != 4 || got[0] != 5 {
+		t.Fatalf("row: %v", got)
 	}
 }
 

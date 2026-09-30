@@ -20,15 +20,19 @@ const (
 	margin           = baseFont
 )
 
+// noIndicatorHint is shown in record mode on a compositor that cannot keep a
+// recording indicator out of the video, so none is drawn.
+const noIndicatorHint = "No recording indicator on this compositor · stop with the same shortcut or nefercap stop"
+
 // footerText is rebuilt only when the capture mode, picker kind or workspace
 // availability changes; pointer motion never formats hints.
-func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle bool) string {
+func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndicator bool) string {
 	action, name, other := "capture", "shot", "rec"
 	if mode == ports.Record {
 		action, name, other = "record", "rec", "shot"
 	}
 	var b strings.Builder
-	b.Grow(192) // one allocation for the whole legend
+	b.Grow(192 + len(noIndicatorHint)) // one allocation for the whole legend
 	b.WriteString(name)
 	if toggle {
 		b.WriteString(" · Tab ")
@@ -57,6 +61,10 @@ func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle bool) str
 		b.WriteString(" region · click ")
 		b.WriteString(action)
 		b.WriteString(" monitor")
+	}
+	if noIndicator && mode == ports.Record {
+		b.WriteByte('\n')
+		b.WriteString(noIndicatorHint)
 	}
 	return b.String()
 }

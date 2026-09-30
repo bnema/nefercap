@@ -30,21 +30,22 @@ func (g *bufGeom) validate() error {
 	return nil
 }
 
-// shmBuffer is the single wl_shm mapping and wl_buffer reused between
-// captures. The pool proxy is destroyed right after buffer creation, which the
-// protocol allows: the buffer keeps the compositor-side mapping alive.
+// shmBuffer is one wl_shm mapping and wl_buffer reused between captures. A
+// Source has two: one holds the last frame while the next is written. The pool
+// proxy is destroyed right after buffer creation, which the protocol allows:
+// the buffer keeps the compositor-side mapping alive.
 type shmBuffer struct {
 	geom   bufGeom
 	data   []byte
 	buffer *core.Buffer
 }
 
-// ensureBuffer makes s.buf match g, reusing it when unchanged.
-func (s *Source) ensureBuffer(g bufGeom) error {
-	if s.buf.buffer != nil && s.buf.geom == g {
+// ensureBuffer makes s.bufs[i] match g, reusing it when unchanged.
+func (s *Source) ensureBuffer(i int, g bufGeom) error {
+	if s.bufs[i].buffer != nil && s.bufs[i].geom == g {
 		return nil
 	}
-	if err := s.releaseBuffer(true); err != nil {
+	if err := s.releaseBuffer(i, true); err != nil {
 		s.terminate()
 		return err
 	}
@@ -74,15 +75,15 @@ func (s *Source) ensureBuffer(g bufGeom) error {
 		s.terminate()
 		return fmt.Errorf("wayland: create buffer: %w", err)
 	}
-	s.buf = shmBuffer{geom: g, data: data, buffer: buffer}
+	s.bufs[i] = shmBuffer{geom: g, data: data, buffer: buffer}
 	return nil
 }
 
-// releaseBuffer unmaps the storage. With destroy set, and while connected, it
-// also destroys the wl_buffer. The caller holds opMu.
-func (s *Source) releaseBuffer(destroy bool) error {
-	b := s.buf
-	s.buf = shmBuffer{}
+// releaseBuffer unmaps the storage of s.bufs[i]. With destroy set, and while
+// connected, it also destroys the wl_buffer. The caller holds opMu.
+func (s *Source) releaseBuffer(i int, destroy bool) error {
+	b := s.bufs[i]
+	s.bufs[i] = shmBuffer{}
 	var err error
 	if b.buffer != nil && destroy && !s.dead.Load() {
 		err = b.buffer.Destroy()
@@ -91,4 +92,10 @@ func (s *Source) releaseBuffer(destroy bool) error {
 		err = errors.Join(err, wlturbo.UnmapMemory(b.data))
 	}
 	return err
+}
+
+// releaseBuffers releases both buffers without destroying the wl_buffers: the
+// connection is ending.
+func (s *Source) releaseBuffers() error {
+	return errors.Join(s.releaseBuffer(0, false), s.releaseBuffer(1, false))
 }

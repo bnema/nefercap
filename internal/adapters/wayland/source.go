@@ -1,5 +1,8 @@
-// Package wayland captures output frames over the wlr-screencopy protocol
-// using the wlturbo transport and wl_shm buffers.
+// Package wayland captures frames over ext-image-copy-capture-v1 with the
+// wlturbo transport and wl_shm buffers. It lists workspaces through
+// ext-workspace-v1 and uses NeferWL's optional extension, when the compositor
+// has it, for workspace and region sources and for excluding the recording
+// HUD from frames.
 package wayland
 
 import (
@@ -24,12 +27,22 @@ import (
 )
 
 const (
-	outputVersion     = 4 // wl_output.name arrived in version 4
-	shmVersion        = 1
-	screencopyVersion = 3
-	screencopyIface   = "zwlr_screencopy_manager_v1"
-	maxSettleRounds   = 4
-	maxOutputScale    = 16 // informational; larger announcements are clamped
+	outputVersion    = 4 // wl_output.name arrived in version 4
+	shmVersion       = 1
+	copyVersion      = 1
+	xdgOutputVersion = 3
+	maxSettleRounds  = 4
+	maxOutputScale   = 16 // informational; larger announcements are clamped
+	// defaultPollWait is how long Capture waits for a frame the compositor may
+	// hold back until the screen changes; short against a frame interval.
+	defaultPollWait = 2 * time.Millisecond
+)
+
+// Globals of the capture protocols.
+const (
+	outputSourceIface = "ext_output_image_capture_source_manager_v1"
+	copyManagerIface  = "ext_image_copy_capture_manager_v1"
+	xdgOutputIface    = "zxdg_output_manager_v1"
 )
 
 // output is the client-side state of one bound wl_output global.
@@ -40,6 +53,8 @@ type output struct {
 	name          string
 	width, height int32
 	scale         int32
+	lw, lh        int32 // logical size from xdg-output, 0 when unknown
+	xdg           *xdgOutput
 	removed       bool
 }
 
@@ -69,18 +84,20 @@ type Source struct {
 	watchGen    atomic.Uint64
 	watchActive atomic.Bool
 
-	shm        *core.Shm
-	screencopy *screencopyManager
-	outputs    map[uint32]*output
-	bound      int // wl_output globals bound so far
-	buf        shmBuffer
+	shm         *core.Shm
+	copyManager *requestOnly // ext_image_copy_capture_manager_v1
+	outSource   *requestOnly // ext_output_image_capture_source_manager_v1
+	xdgOutputs  *requestOnly // zxdg_output_manager_v1, nil when absent
+	outputs     map[uint32]*output
+	byProxy     map[uint32]*output // wl_output proxy ID to output
+	bound       int                // wl_output globals bound so far
+	bufs        [2]shmBuffer
+	conn        net.Conn
+	pollWait    time.Duration // how long Capture waits for a pending frame
 
-	// Private capture session state, see capture_session.go.
-	private    *captureManager // nil when the compositor lacks the protocol
-	workspaces map[uint64]*workspace
-	metaErr    error // set once the private inventory was rejected
-	session    *captureSession
-	pingEvery  time.Duration
+	sess *session // the one live capture session, nil before the first capture
+	ext  extensions
+	ws   workspaceState
 }
 
 var _ ports.Source = (*Source)(nil)
@@ -105,11 +122,13 @@ func New(ctx context.Context, socket string) (*Source, error) {
 		return nil, fmt.Errorf("wayland: %w", err)
 	}
 	s := &Source{
-		log:       logging.For(ctx, "wayland"),
-		display:   display,
-		wl:        display.Context(),
-		outputs:   make(map[uint32]*output),
-		pingEvery: sessionPingInterval,
+		log:      logging.For(ctx, "wayland"),
+		display:  display,
+		wl:       display.Context(),
+		outputs:  make(map[uint32]*output),
+		byProxy:  make(map[uint32]*output),
+		conn:     conn,
+		pollWait: defaultPollWait,
 	}
 	stop := context.AfterFunc(ctx, s.terminate)
 	err = s.discover()
@@ -122,7 +141,10 @@ func New(ctx context.Context, socket string) (*Source, error) {
 		s.log.Error().Err(err).Msg("wayland source failed to start")
 		return nil, err
 	}
-	s.log.Info().Int("outputs", len(s.outputs)).Uint32("screencopy_version", s.screencopy.Version()).Msg("wayland source started")
+	s.log.Info().Int("outputs", len(s.outputs)).Interface("capabilities", s.Capabilities()).
+		Bool("region_source", s.ext.source != nil).
+		Bool("hidden_workspaces", s.ws.mgr != nil && s.ext.source != nil).
+		Msg("wayland source started")
 	return s, nil
 }
 
@@ -143,26 +165,52 @@ func socketPath(socket string) (string, error) {
 	return filepath.Join(dir, socket), nil
 }
 
-func (s *Source) discover() error {
+func (s *Source) discover() (err error) {
 	reg := s.display.Registry()
 	reg.AddHandler(core.OutputInterface, s.onOutputGlobal)
 	reg.AddGlobalRemoveHandler(globalRemoved{s})
-	if err := s.roundtrip(); err != nil {
+	if err = s.roundtrip(); err != nil {
 		return err
 	}
 	s.shm = core.NewShm(s.wl)
-	if _, err := reg.BindNegotiated(core.ShmInterface, shmVersion, s.shm); err != nil {
+	if _, err = reg.BindNegotiated(core.ShmInterface, shmVersion, s.shm); err != nil {
 		return fmt.Errorf("wayland: bind wl_shm: %w", err)
 	}
-	s.screencopy = &screencopyManager{}
-	s.screencopy.SetContext(s.wl)
-	if _, err := reg.BindNegotiated(screencopyIface, screencopyVersion, s.screencopy); err != nil {
-		return fmt.Errorf("wayland: bind %s: %w", screencopyIface, err)
-	}
-	if err := s.bindCaptureManager(); err != nil {
+	if s.copyManager, err = s.bindRequired(copyManagerIface, copyVersion); err != nil {
 		return err
 	}
-	return s.roundtrip()
+	if s.outSource, err = s.bindRequired(outputSourceIface, copyVersion); err != nil {
+		return err
+	}
+	if err = s.bindExtras(); err != nil {
+		return err
+	}
+	return s.settle()
+}
+
+// bindRequired binds a global that capture cannot work without.
+func (s *Source) bindRequired(iface string, version uint32) (*requestOnly, error) {
+	p := newRequestOnly(s.wl)
+	if _, err := s.display.Registry().BindNegotiated(iface, version, p); err != nil {
+		if errors.Is(err, wlturbo.ErrGlobalNotFound) {
+			return nil, fmt.Errorf("wayland: the compositor does not support ext-image-copy-capture-v1 (%s missing)", iface)
+		}
+		return nil, fmt.Errorf("wayland: bind %s: %w", iface, err)
+	}
+	return p, nil
+}
+
+// bindOptional binds a global when the compositor offers it.
+func (s *Source) bindOptional(iface string, version uint32) (*requestOnly, error) {
+	p := newRequestOnly(s.wl)
+	_, err := s.display.Registry().BindNegotiated(iface, version, p)
+	switch {
+	case err == nil:
+		return p, nil
+	case errors.Is(err, wlturbo.ErrGlobalNotFound):
+		return nil, nil
+	}
+	return nil, fmt.Errorf("wayland: bind %s: %w", iface, err)
 }
 
 func (s *Source) onOutputGlobal(reg *wlturbo.Registry, name, version uint32) {
@@ -183,7 +231,11 @@ func (s *Source) onOutputGlobal(reg *wlturbo.Registry, name, version uint32) {
 		return
 	}
 	s.outputs[name] = o
+	s.byProxy[o.proxy.ID()] = o
 	s.bound++
+	if s.xdgOutputs != nil {
+		s.watchLogicalSize(o)
+	}
 }
 
 type globalRemoved struct{ s *Source }
@@ -194,7 +246,10 @@ func (g globalRemoved) HandleRegistryGlobalRemove(e wlturbo.RegistryGlobalRemove
 		return
 	}
 	delete(g.s.outputs, e.Name)
+	delete(g.s.byProxy, o.proxy.ID())
 	o.removed = true
+	g.s.releaseXdg(o)
+	g.s.ws.forgetOutput(o.proxy.ID())
 	if o.version >= 3 {
 		_ = o.proxy.Release()
 	} // older wl_output has no destructor: the proxy must stay to absorb events
@@ -214,6 +269,25 @@ func (s *Source) dispatch() error {
 		return fmt.Errorf("wayland: dispatch: %w", err)
 	}
 	return nil
+}
+
+// dispatchUntil is dispatch with a read deadline; a zero deadline waits
+// forever. It reports a missed deadline, which is not an error.
+func (s *Source) dispatchUntil(deadline time.Time) (timedOut bool, err error) {
+	if deadline.IsZero() {
+		return false, s.dispatch()
+	}
+	_ = s.conn.SetReadDeadline(deadline)
+	err = s.display.Dispatch()
+	_ = s.conn.SetReadDeadline(time.Time{})
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true, nil
+	}
+	if err != nil {
+		s.terminate()
+		return false, fmt.Errorf("wayland: dispatch: %w", err)
+	}
+	return false, nil
 }
 
 // settle round-trips until no output was bound meanwhile, so that the events
@@ -260,7 +334,7 @@ func (s *Source) begin(ctx context.Context) error {
 		s.watchActive.Store(false)
 		s.terminate()
 		s.detachWatcher()
-		s.releaseBuffer(false)
+		s.releaseBuffers()
 		return err
 	}
 	return nil
@@ -301,7 +375,7 @@ func (s *Source) finish(ctx context.Context, err error) error {
 		return err
 	}
 	s.detachWatcher()
-	s.releaseBuffer(false)
+	s.releaseBuffers()
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
@@ -352,6 +426,14 @@ func (s *Source) Capture(ctx context.Context, t ports.Target) (ports.Frame, erro
 	return frame, nil
 }
 
+// Capabilities reports what the compositor offers beyond output capture.
+func (s *Source) Capabilities() ports.Capabilities {
+	return ports.Capabilities{
+		Workspaces: s.ws.mgr != nil,
+		Exclusion:  s.ext.exclusion != nil,
+	}
+}
+
 // Close terminates the connection, waits for a blocked operation to observe
 // it, and releases the mapped storage. It is idempotent.
 func (s *Source) Close() error {
@@ -359,5 +441,5 @@ func (s *Source) Close() error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.detachWatcher()
-	return s.releaseBuffer(false)
+	return s.releaseBuffers()
 }

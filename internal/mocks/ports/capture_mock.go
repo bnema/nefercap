@@ -48,6 +48,50 @@ func (_m *MockSource) EXPECT() *MockSource_Expecter {
 	return &MockSource_Expecter{mock: &_m.Mock}
 }
 
+// Capabilities provides a mock function for the type MockSource
+func (_mock *MockSource) Capabilities() ports.Capabilities {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Capabilities")
+	}
+
+	var r0 ports.Capabilities
+	if returnFunc, ok := ret.Get(0).(func() ports.Capabilities); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(ports.Capabilities)
+	}
+	return r0
+}
+
+// MockSource_Capabilities_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Capabilities'
+type MockSource_Capabilities_Call struct {
+	*mock.Call
+}
+
+// Capabilities is a helper method to define mock.On call
+func (_e *MockSource_Expecter) Capabilities() *MockSource_Capabilities_Call {
+	return &MockSource_Capabilities_Call{Call: _e.mock.On("Capabilities")}
+}
+
+func (_c *MockSource_Capabilities_Call) Run(run func()) *MockSource_Capabilities_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockSource_Capabilities_Call) Return(capabilities ports.Capabilities) *MockSource_Capabilities_Call {
+	_c.Call.Return(capabilities)
+	return _c
+}
+
+func (_c *MockSource_Capabilities_Call) RunAndReturn(run func() ports.Capabilities) *MockSource_Capabilities_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Capture provides a mock function for the type MockSource
 func (_mock *MockSource) Capture(context1 context.Context, target ports.Target) (ports.Frame, error) {
 	ret := _mock.Called(context1, target)
@@ -216,6 +260,68 @@ func (_c *MockSource_Outputs_Call) Return(outputs []ports.Output, err error) *Mo
 }
 
 func (_c *MockSource_Outputs_Call) RunAndReturn(run func(context1 context.Context) ([]ports.Output, error)) *MockSource_Outputs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Workspaces provides a mock function for the type MockSource
+func (_mock *MockSource) Workspaces(context1 context.Context) ([]ports.Workspace, error) {
+	ret := _mock.Called(context1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Workspaces")
+	}
+
+	var r0 []ports.Workspace
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]ports.Workspace, error)); ok {
+		return returnFunc(context1)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []ports.Workspace); ok {
+		r0 = returnFunc(context1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]ports.Workspace)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(context1)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockSource_Workspaces_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Workspaces'
+type MockSource_Workspaces_Call struct {
+	*mock.Call
+}
+
+// Workspaces is a helper method to define mock.On call
+//   - context1 context.Context
+func (_e *MockSource_Expecter) Workspaces(context1 any) *MockSource_Workspaces_Call {
+	return &MockSource_Workspaces_Call{Call: _e.mock.On("Workspaces", context1)}
+}
+
+func (_c *MockSource_Workspaces_Call) Run(run func(context1 context.Context)) *MockSource_Workspaces_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockSource_Workspaces_Call) Return(workspaces []ports.Workspace, err error) *MockSource_Workspaces_Call {
+	_c.Call.Return(workspaces, err)
+	return _c
+}
+
+func (_c *MockSource_Workspaces_Call) RunAndReturn(run func(context1 context.Context) ([]ports.Workspace, error)) *MockSource_Workspaces_Call {
 	_c.Call.Return(run)
 	return _c
 }

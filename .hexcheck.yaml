@@ -18,6 +18,4 @@ mocking:
 ruleSettings:
   suspicious-business-logic-in-adapter:
     # Run/resolveOutput and recordInteractive wire sessions, GUI and core.
-    # resolveCapture maps compositor-granted session state to a screencopy
-    # target; it makes no selection or fallback decision.
-    excludePaths: [internal/app/app.go, internal/app/record_interactive.go, internal/adapters/wayland/capture_session.go]
+    excludePaths: [internal/app/app.go, internal/app/record_interactive.go]

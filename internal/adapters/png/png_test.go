@@ -29,17 +29,17 @@ func decode(t *testing.T, path string) image.Image {
 	return img
 }
 
-func TestSaveConvertsBGRAWithStrideAndInvert(t *testing.T) {
-	// 2x2 pixels, stride 12 (4 padding bytes per row), stored bottom-first.
+func TestSaveConvertsBGRAWithStride(t *testing.T) {
+	// 2x2 pixels, stride 12 (4 padding bytes per row).
 	// Pixel bytes are B,G,R,A; alpha values must be ignored.
 	pix := []byte{
-		// stored row 0 == bottom row
-		30, 20, 10, 0, 60, 50, 40, 7, 0xEE, 0xEE, 0xEE, 0xEE,
-		// stored row 1 == top row
+		// top row
 		3, 2, 1, 255, 6, 5, 4, 0, 0xEE, 0xEE, 0xEE, 0xEE,
+		// bottom row
+		30, 20, 10, 0, 60, 50, 40, 7, 0xEE, 0xEE, 0xEE, 0xEE,
 	}
 	for _, format := range []ports.PixelFormat{ports.ARGB8888, ports.XRGB8888} {
-		f := ports.Frame{Pixels: pix, Width: 2, Height: 2, Stride: 12, Format: format, YInvert: true}
+		f := ports.Frame{Pixels: pix, Width: 2, Height: 2, Stride: 12, Format: format}
 		path := filepath.Join(t.TempDir(), "shot.png")
 		if err := New().Save(context.Background(), f, path); err != nil {
 			t.Fatal(err)

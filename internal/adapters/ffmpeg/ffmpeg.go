@@ -351,10 +351,10 @@ func (w *Writer) diagnostics() string {
 }
 
 // writeRows writes the frame in top-to-bottom row order without copying it.
-// A tightly packed, upright frame is a single write.
+// A tightly packed frame is a single write.
 func writeRows(dst io.Writer, f ports.Frame) error {
 	rowLen := f.Width * ports.BytesPerPixel
-	if !f.YInvert && f.Stride == rowLen {
+	if f.Stride == rowLen {
 		return writeFull(dst, f.Pixels[:rowLen*f.Height])
 	}
 	for y := 0; y < f.Height; y++ {

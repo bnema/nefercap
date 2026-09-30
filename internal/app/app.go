@@ -84,16 +84,9 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 	var saved bool
 	if selection.Mode == ports.Record {
 		var outcome recordingOutcome
-		outcome, err = recordInteractive(ctx, source, outputs, selection)
+		outcome, err = recordInteractive(ctx, output, source, outputs, selection)
 		saved = outcome.Saved
 	} else {
-		if selection.Target.WorkspaceID != 0 {
-			state, sessionErr := source.BeginSession(ctx, selection.Target, false)
-			if sessionErr != nil {
-				return sessionError(ctx, false, sessionErr)
-			}
-			selection.Target = state.Target
-		}
 		var writer ports.ScreenshotWriter = png.New()
 		var copied *clipboard.Writer
 		if selection.Clipboard {

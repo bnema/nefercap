@@ -660,8 +660,11 @@ func TestLabelContentHoldsMonospaceLine(t *testing.T) {
 }
 
 func TestFooterAndHeaderText(t *testing.T) {
-	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false, false), "shot · R region")
-	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false), "rec · R region")
+	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false, false, false), "shot · R region")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, false), "rec · R region")
+	assert.NotContains(t, footerText(ports.Record, core.PickRegion, false, false, false), "No recording indicator")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, true), "No recording indicator on this compositor")
+	assert.NotContains(t, footerText(ports.Screenshot, core.PickRegion, false, false, true), "No recording indicator", "only record mode needs the hint")
 	assert.Equal(t, "DP-1 · 1/2 · keys 1-2 pick monitor", headerText(testOutputs, 0))
 	assert.Equal(t, "DP-1", headerText(testOutputs[:1], 0))
 	i, ok := outputKey("2", 2)
@@ -778,4 +781,14 @@ func TestInputReportsClosing(t *testing.T) {
 	m.input(button(10, 10, true))
 	m.input(motion(200, 200))
 	assert.True(t, m.input(button(200, 200, false)), "a drag release accepts the region")
+}
+
+func TestCapabilitiesHideWorkspacesAndHintIndicator(t *testing.T) {
+	ws := []ports.Workspace{{ID: 11, OutputID: 7, Active: true, Region: ports.Region{Width: 640, Height: 480}}}
+	s := New(ports.Record, ports.VideoSettings{}, ws, false).WithCapabilities(ports.Capabilities{})
+	assert.Empty(t, s.workspaces, "no ext-workspace: W is not offered")
+	assert.True(t, s.noIndicator)
+	s = New(ports.Record, ports.VideoSettings{}, ws, false).WithCapabilities(ports.Capabilities{Workspaces: true, Exclusion: true})
+	assert.Len(t, s.workspaces, 1)
+	assert.False(t, s.noIndicator)
 }

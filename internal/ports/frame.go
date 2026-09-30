@@ -20,7 +20,9 @@ func (f Frame) Validate() error {
 	if f.Format != XRGB8888 && f.Format != ARGB8888 {
 		return fmt.Errorf("%w: %d", ErrUnsupportedFormat, f.Format)
 	}
-	if len(f.Pixels) < f.Stride*f.Height {
+	// The last row needs only its pixels: a cropped frame borrows a window of
+	// a larger buffer, with no stride padding after its final row.
+	if len(f.Pixels) < (f.Height-1)*f.Stride+f.Width*BytesPerPixel {
 		return fmt.Errorf("short frame storage: got %d bytes", len(f.Pixels))
 	}
 	return nil
@@ -29,9 +31,6 @@ func (f Frame) Validate() error {
 // Row returns a packed view in top-to-bottom order, excluding stride padding.
 // Call Validate before using Row. The returned slice borrows frame storage.
 func (f Frame) Row(y int) []byte {
-	if f.YInvert {
-		y = f.Height - 1 - y
-	}
 	offset := y * f.Stride
 	return f.Pixels[offset : offset+f.Width*BytesPerPixel]
 }

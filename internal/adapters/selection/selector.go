@@ -45,20 +45,22 @@ var errNoOutputs = fmt.Errorf("selection: no outputs to select: %w", ports.ErrOu
 
 // Selector shows the layer-shell selection overlay.
 type Selector struct {
-	mode       ports.Mode
-	video      ports.VideoSettings
-	workspaces []ports.Workspace
-	grid       bool
-	toggle     bool
+	mode        ports.Mode
+	video       ports.VideoSettings
+	workspaces  []ports.Workspace
+	grid        bool
+	toggle      bool
+	noIndicator bool
 }
 
 var _ ports.Selector = (*Selector)(nil)
 
 // New returns a selector for mode. Record selections carry video; a zero FPS
-// becomes DefaultFPS. workspaces is native compositor metadata: the W key is
+// becomes DefaultFPS. workspaces is ext-workspace metadata: the W key is
 // offered only for the Active workspace with a valid (nonzero) ID on the output
-// an overlay covers. Hidden workspaces are never offered and nothing is
-// invented when no workspace qualifies. grid is the initial state of the
+// an overlay covers. Other workspaces are never offered and nothing is
+// invented when no workspace qualifies; a NeferWL recording of that workspace
+// keeps following it when the user switches away. grid is the initial state of the
 // whole-monitor guides; the G key toggles them per overlay. The caller assigns
 // Selection.Path. The first output passed to Select opens first, so the caller
 // orders outputs to put the preferred one first.
@@ -67,6 +69,17 @@ func New(mode ports.Mode, video ports.VideoSettings, workspaces []ports.Workspac
 		video.FPS = DefaultFPS
 	}
 	return &Selector{mode: mode, video: video, workspaces: append([]ports.Workspace(nil), workspaces...), grid: grid}
+}
+
+// WithCapabilities adapts the selector to the compositor: W is offered only
+// when it has workspaces, and record mode says so when it cannot show a
+// recording indicator. Without it the selector assumes nothing is missing.
+func (s *Selector) WithCapabilities(c ports.Capabilities) *Selector {
+	s.noIndicator = !c.Exclusion
+	if !c.Workspaces {
+		s.workspaces = nil
+	}
+	return s
 }
 
 // AllowToggle lets Tab switch between screenshot and record selection. The
@@ -113,10 +126,12 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	for i := range outputs {
 		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
+		m.noIndicator = s.noIndicator
 		if s.toggle {
 			m.toggle, m.wake = true, make(chan struct{}, 1)
 			sess.wakes = append(sess.wakes, m.wake)
 		}
+		m.footerText = footerText(m.mode, m.footerKind, m.footerWorkspace, m.toggle, m.noIndicator)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
