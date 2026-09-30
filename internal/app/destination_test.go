@@ -25,20 +25,20 @@ func TestCheckDirsBeforeSelector(t *testing.T) {
 		name     string
 		options  cli.Options
 		settings config.Settings
-		wantErr  bool
+		wantKey  string // config key named in the error; empty means no error
 	}{
-		{"all-in-one bad video dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: file, ScreenshotDir: good}, true},
-		{"all-in-one bad screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file}, true},
-		{"all-in-one clipboard skips screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file, Output: config.OutputClipboard}, false},
-		{"shot ignores video dir", cli.Options{Command: cli.Shot}, config.Settings{VideoDir: file, ScreenshotDir: good}, false},
-		{"rec ignores screenshot dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: good, ScreenshotDir: file}, false},
-		{"rec bad video dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: file}, true},
-		{"explicit -file skips dirs", cli.Options{Command: cli.Shot, Path: "x.png"}, config.Settings{ScreenshotDir: file}, false},
+		{"all-in-one bad video dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: file, ScreenshotDir: good}, "video.dir"},
+		{"all-in-one bad screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file}, "screenshot.dir"},
+		{"all-in-one clipboard skips screenshot dir", cli.Options{Command: cli.AllInOne}, config.Settings{VideoDir: good, ScreenshotDir: file, Output: config.OutputClipboard}, ""},
+		{"shot ignores video dir", cli.Options{Command: cli.Shot}, config.Settings{VideoDir: file, ScreenshotDir: good}, ""},
+		{"rec ignores screenshot dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: good, ScreenshotDir: file}, ""},
+		{"rec bad video dir", cli.Options{Command: cli.Rec}, config.Settings{VideoDir: file}, "video.dir"},
+		{"explicit -file skips dirs", cli.Options{Command: cli.Shot, Path: "x.png"}, config.Settings{ScreenshotDir: file}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := checkDirs(tc.options, tc.settings)
-			if tc.wantErr {
-				assert.Error(t, err)
+			if tc.wantKey != "" {
+				assert.ErrorContains(t, err, tc.wantKey+":")
 			} else {
 				assert.NoError(t, err)
 			}

@@ -38,7 +38,7 @@ video.dir = ~/Videos
 ```
 
 - `selector.grid`: `on` (default) or `off` to hide the guides on startup.
-- `screenshot.dir`, `video.dir`: an absolute path or `~/…`; relative paths are errors. The directory is created (private) when missing. Absent, the XDG defaults below apply.
+- `screenshot.dir`, `video.dir`: an absolute path or `~/…`; relative paths are errors. Absent, the XDG defaults below apply. Before the selector opens, nefercap creates (private) and checks each directory the command can use: both for all-in-one, one for `shot` or `rec`.
 - `screenshot.output`: `file` (default), `file+clipboard` (save, then copy the same PNG) or `clipboard` (copy only; no file, no path printed).
 
 Each key may appear once; blank lines and `#` comment lines are allowed; unknown keys, duplicates and invalid values are errors reported before the selector opens. `screenshot.output` and the directories apply to all-in-one, `shot` and `rec`; the scripted `screenshot` and `record` never read them. On `shot`, `-clipboard` alone copies only, `-clipboard -file PATH` saves and copies, and `-file PATH` alone saves only, whatever `screenshot.output` says. **G** changes visibility for the current monitor's overlay without rewriting the config. Selection dimensions are logical pixels; the captured file's dimensions depend on the monitor scaling.

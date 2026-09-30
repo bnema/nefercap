@@ -64,12 +64,12 @@ func checkDirs(options cli.Options, settings config.Settings) error {
 	all := options.Command == cli.AllInOne
 	if all || options.Command == cli.Rec {
 		if _, err := destination.VideoIn(settings.VideoDir); err != nil {
-			return err
+			return fmt.Errorf("video.dir: %w", err)
 		}
 	}
 	if (all || options.Command == cli.Shot) && !options.Clipboard && settings.Output != config.OutputClipboard {
 		if _, err := destination.ScreenshotIn(settings.ScreenshotDir); err != nil {
-			return err
+			return fmt.Errorf("screenshot.dir: %w", err)
 		}
 	}
 	return nil
