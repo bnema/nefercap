@@ -21,7 +21,7 @@ make bin
 - **R:** return to rectangle selection. **G:** toggle full-monitor center and thirds guides.
 - **1–9:** select that monitor. **Esc:** cancel without creating a capture.
 
-The guides are visible by default: three vertical and three horizontal green lines, slightly darker than the selection outline and one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. To hide them on startup, set this in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
+The guides are visible by default: three vertical and three horizontal medium-gray lines, one physical pixel wide, aligned to each monitor's scaling. They stay fixed while dragging. To hide them on startup, set this in `$XDG_CONFIG_HOME/nefercap/config` (default `~/.config/nefercap/config`):
 
 ```ini
 selector.grid = off

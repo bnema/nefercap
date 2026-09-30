@@ -1,4 +1,4 @@
-/* Transparent selector overlay: dimming, thin green guides, monospace tags. */
+/* Transparent selector overlay: dimming, thin gray guides, monospace tags. */
 app {
   width: 100%; height: 100%; background-color: transparent;
   color: #e6edf3; font-family: monospace; font-size: 13px;
@@ -6,7 +6,7 @@ app {
 stack.scene { width: 100%; height: 100%; }
 box.dim { background-color: rgba(0, 0, 0, 0.5); }
 box.edge { background-color: #4fd1a5; }
-box.grid { background-color: #43b28c; }
+box.grid { background-color: #808080; }
 box.tag {
   box-sizing: border-box; padding: 4px 10px; overflow: hidden;
   background-color: rgba(13, 16, 20, 0.92); color: #e6edf3;
