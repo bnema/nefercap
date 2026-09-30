@@ -1,47 +1,69 @@
 # nefercap
 
-A small Wayland screenshot and silent video recorder, with a NeferGUI control panel.
+Fast Wayland screenshots and silent video recording with a NeferGUI layer-shell selector.
+
+## Quick capture
+
+```sh
+make bin
+./bin/nefercap shot
+./bin/nefercap rec
+./bin/nefercap stop
+./bin/nefercap status
+```
+
+`nefercap` without a command starts screenshot selection. The selector covers the connected outputs, up to nine:
+
+- **Drag and release:** capture a rectangle, clamped to its monitor.
+- **Click:** capture the monitor; small pointer jitter counts as a click.
+- **M, then Enter:** select the monitor.
+- **W, then Enter:** select the current workspace when native workspace metadata is available.
+- **R:** return to rectangle selection. **G:** toggle thirds guides.
+- **1–9:** select that monitor. **Esc:** cancel without creating a capture.
+
+A screenshot saves immediately. Recording displays a red border around the visible target and a small **REC / Stop** HUD. Both are excluded from nefercap's video. The HUD takes no keyboard focus; clicks outside Stop pass through. Press the recording shortcut again, click Stop, or run `nefercap stop` to finish the file.
+
+Monitor recording follows workspace changes. A workspace recording follows its stable identity and continues when another workspace is displayed. A fixed region stays attached to its monitor. A hidden workspace has no border on the unrelated visible workspace; the recording HUD remains available.
+
+Screenshots go to the configured XDG Pictures directory's `Screenshots` subdirectory, and videos to the XDG Videos directory. Names include a nanosecond timestamp. `-file` chooses an explicit destination. Files are private to their owner and are never overwritten. The saved path is printed to stdout, including for scripted commands. Cancelling before any frame is written creates no file and prints no path.
+
+Opening screenshot selection while a recording is active is refused: its overlay is not part of the existing session's authorized controls. A scripted `screenshot` still uses standard capture and includes the active HUD and border.
 
 ## Requirements
 
 - Go 1.27 for development; normal builds use `CGO_ENABLED=0`.
-- A Wayland compositor exposing `zwlr_screencopy_manager_v1`.
-- FFmpeg with `libx264` for MP4 recording.
-- For the control panel: Vulkan, libxkbcommon, linux-dmabuf and linux-drm-syncobj support.
+- For selection: layer-shell v4, Vulkan, libxkbcommon, linux-dmabuf and linux-drm-syncobj.
+- For capture: `zwlr_screencopy_manager_v1`.
+- For recording indicators and workspace targets: NeferWL's native capture-session protocol.
+- FFmpeg with `libx264` for silent H.264 video in fragmented MP4.
 
-## Build and run
+A standard compositor can support monitor/region screenshots. Recording refuses to start without native session support rather than capture its own controls. Standard capture clients keep their normal behavior and see the HUD and border.
+
+## Scripted commands
 
 ```sh
-make bin
 ./bin/nefercap outputs
 ./bin/nefercap screenshot -output DP-1 -file capture.png
 ./bin/nefercap screenshot -output DP-1 -region 0,0,1920x1080 -file region.png
 ./bin/nefercap record -output DP-1 -fps 30 -duration 10s -file capture.mp4
-./bin/nefercap record -output DP-1 -size 1920x1080 -file presentation.mp4
-./bin/nefercap gui
+./bin/nefercap rec -size 1920x1080 -file presentation.mp4
 ```
 
-Use an output name from `outputs`. Omitting `-output` is allowed when there is exactly one output. `-file` is required for CLI captures. Running `nefercap` without a command opens the GUI.
+Use an output name from `outputs`. Scripted `screenshot` and `record` require `-file`; omitting `-output` is allowed with exactly one output. Regions use output-local logical coordinates, not desktop-global coordinates. Capture dimensions are physical pixels negotiated with the compositor.
 
-Regions use nonnegative, output-local logical coordinates, not desktop-global coordinates; captured frames use the compositor's negotiated physical dimensions. `-size` changes the video's encoded resolution, not application scaling, and requires two even dimensions. `-fps` accepts 1–120 (default 30). `-debug` enables diagnostic logging.
+`-fps` accepts 1–120, default 30. `-size` requires two even dimensions and changes encoded resolution, not application scaling. Odd source dimensions require an explicit even size; pixels are not silently cropped. `-debug` enables diagnostic logging.
 
-Recording without `-duration` stops with Ctrl+C or SIGTERM and finalizes the file. Timed recording encodes `ceil(duration × fps)` frames; slow captures repeat the previous frame rather than shorten the video. A slow capture or encoder can make completion take longer than the requested duration. Odd source dimensions require an explicit even `-size` for video; pixels are never silently cropped.
+Untimed recording stops with the HUD, the control command, Ctrl+C or SIGTERM and finalizes the file. The `stop` command acknowledges the request; finalization finishes in the recorder process, not before the control reply. Timed recording encodes `ceil(duration × fps)` frames. Slow capture can repeat frames; encoder backpressure can extend wall time without adding an unbounded queue.
 
-The GUI defaults to a ten-second recording and closes its panel before capturing. Existing files are never overwritten, and captured files are created with owner-only permissions.
-
-## Capture scope
-
-Screenshots are opaque SDR PNGs. Video is silent SDR H.264 in fragmented MP4. Monitor capture follows workspace changes. Regions remain attached to their monitor.
-
-The encoder uses libx264's `veryfast` preset with `zerolatency`, two encoding threads and one filter thread. This bounds buffering and favors a smaller runtime footprint over compression efficiency; files can be larger than with slower presets.
-
-Workspace identity capture, offscreen workspaces, audio, cursor guarantees, mouse-drawn selection, layer-shell overlays and a persistent recording control panel are not supported. NeferWL ignores the capture protocol's cursor option.
+Screenshots and video are opaque SDR. Audio, pause and cursor guarantees are not supported. NeferWL ignores the capture protocol's cursor option.
 
 ## Architecture and footprint
 
-`internal/core` owns the capture workflow and imports only the standard library and `internal/ports`. `internal/adapters` contains Wayland, PNG, FFmpeg, CLI and GUI integrations. `internal/app` is the composition root.
+`internal/core` owns capture and selection state and imports only stdlib and `internal/ports`. `internal/adapters` contains Wayland, selection, indicator, control, PNG and FFmpeg integrations. `internal/app` wires them together.
 
-One capture is in flight at a time. Frame storage is borrowed until the next capture; writers consume it synchronously. Shared-memory storage is bounded and reused at unchanged geometry. Video row views remove stride padding and handle vertical inversion without copying a full frame into the Go heap. The encoder is a separate bounded-lifetime process; its memory use is not the Go heap.
+One capture is in flight. Writers synchronously consume borrowed, reusable shared-memory storage. Video strips stride padding and handles vertical inversion without a full-frame heap copy. The selector opens one transient layer surface per output; the HUD is one small surface, not a fullscreen GPU buffer. Idle UI does not redraw continuously.
+
+The encoder uses `veryfast`, `zerolatency`, two encoding threads and one filter thread. Its separate-process footprint is not the Go heap; lower buffering can produce larger files than slower presets.
 
 ```sh
 make check
@@ -51,13 +73,13 @@ staticcheck ./...
 go test ./... -run '^$' -bench . -benchmem
 ```
 
-Test doubles are generated by Mockery v3. Allocation guards hold frame views, selection validation, cached form parsing, video rows, encoder writes and output lookup at zero allocations. A real-socket capture test caps protocol allocations; it includes its in-process peer. GUI rendering and whole-process memory are separate costs, so the application does not claim zero total allocations.
+Mockery v3 generates test doubles. Allocation guards cover frame views, selection state, unchanged overlay geometry, HUD refresh, video rows, encoder writes and output lookup. Protocol capture has a measured allocation budget; the application does not claim zero total allocations.
 
-## Local dependency setup
+## Local dependencies
 
-This repository has no remote. NeferGUI is pinned to the locally available **v0.1.0** tag. Its exact tagged source has been loaded into the local Go module cache through a file-based module proxy; no GitHub access is needed on this machine.
+This repository has no remote. NeferGUI is pinned to a signed local commit with layer-shell support, using a Go pseudo-version rather than an unpublished release tag. Its exact source is cached through an offline file-based module proxy.
 
-The ignored `.local-deps/` directory in the bootstrap worktree holds the tagged archive and local proxy tooling. Worktrees share the Go module cache, so they do not need a `replace` directive. A different machine without that cached module needs the same tagged source or access to the matching published version; the repository alone does not supply the dependency archive.
+The bootstrap worktree's ignored `.local-deps/` contains source archives and proxy tooling. Builds on this machine work with `GOWORK=off GOPROXY=off`; another machine needs those exact sources or matching module-proxy entries. `go.mod` and `go.sum` pin the versions and hashes.
 
 ## License
 

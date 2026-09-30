@@ -18,10 +18,18 @@ import (
 type Command string
 
 const (
+	// Shot and Rec pick a target with the layer-shell selector; Rec toggles:
+	// while a recording is active it stops that recording instead. Shot is
+	// the default command.
+	Shot   Command = "shot"
+	Rec    Command = "rec"
+	Stop   Command = "stop"
+	Status Command = "status"
+	// Outputs, Screenshot and Record are the scriptable commands. They never
+	// open the selector and require -file.
 	Outputs    Command = "outputs"
 	Screenshot Command = "screenshot"
 	Record     Command = "record"
-	GUI        Command = "gui"
 )
 
 // DefaultFPS is the recording frame rate when -fps is not given.
@@ -30,7 +38,9 @@ const DefaultFPS = 30
 // ErrUsage wraps every command-line usage error.
 var ErrUsage = errors.New("usage error")
 
-// Options is the parsed command line. Video is set only for Record.
+// Options is the parsed command line. Video is set only for Record and Rec.
+// Path is optional for Shot and Rec, where an empty Path lets the caller
+// choose one.
 type Options struct {
 	Command  Command
 	Output   string // output name; empty lets the caller choose
@@ -45,20 +55,35 @@ type Options struct {
 func Usage() string {
 	return fmt.Sprintf(`Usage: nefercap [command] [flags]
 
-Commands:
-  gui         open the capture control panel (default)
+Interactive commands (layer-shell selector over the current output):
+  shot        select what to capture and save a PNG (default)
+  rec         select what to record; run again while recording to stop it
+  stop        stop the active recording
+  status      print the recording state
+
+Selector keys and mouse:
+  drag        select a region, accepted when the left button is released
+  click       capture the whole monitor; after w, the current workspace
+  r           back to region selection
+  m           choose the whole monitor, Enter confirms
+  w           choose the current workspace when known, click or Enter confirms
+  1..9        pick that whole monitor from any overlay
+  g           toggle rule-of-thirds guides
+  Escape      cancel
+
+Script commands (never open the selector):
   outputs     list outputs
   screenshot  save a PNG screenshot
   record      record silent video until interrupted or target video length is reached
 
 Flags:
   -debug            enable debug logging (all commands)
-  -output NAME      output name (screenshot, record)
+  -output NAME      output name (all except stop, status, outputs)
+  -file PATH        new file to write; optional for shot, rec, required for screenshot, record
   -region X,Y,WxH   output-local logical region; default is the full output (screenshot, record)
-  -file PATH        new file to write, required (screenshot, record)
-  -fps N            frames per second, 1..%d (record, default %d)
-  -size WxH         scaled video size, both even, at most %d each (record, default source size)
-  -duration D       encoded video length such as 30s; 0 records until interrupted (record)
+  -fps N            frames per second, 1..%d (rec, record, default %d)
+  -size WxH         scaled video size, both even, at most %d each (rec, record, default source size)
+  -duration D       encoded video length such as 30s; 0 records until stopped (rec, record)
 `, ports.MaxFPS, DefaultFPS, ports.MaxDimension)
 }
 
@@ -68,10 +93,10 @@ func Parse(args []string, out io.Writer) (Options, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	opts := Options{Command: GUI}
+	opts := Options{Command: Shot}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		switch cmd := Command(args[0]); cmd {
-		case Outputs, Screenshot, Record, GUI:
+		case Shot, Rec, Stop, Status, Outputs, Screenshot, Record:
 			opts.Command = cmd
 			args = args[1:]
 		default:
@@ -79,18 +104,23 @@ func Parse(args []string, out io.Writer) (Options, error) {
 		}
 	}
 
+	scripted := opts.Command == Screenshot || opts.Command == Record
+	interactive := opts.Command == Shot || opts.Command == Rec
+	video := opts.Command == Record || opts.Command == Rec
+
 	fs := flag.NewFlagSet("nefercap "+string(opts.Command), flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&opts.Debug, "debug", false, "")
 	var region, size string
 	fps := DefaultFPS
-	capture := opts.Command == Screenshot || opts.Command == Record
-	if capture {
+	if scripted || interactive {
 		fs.StringVar(&opts.Output, "output", "", "")
-		fs.StringVar(&region, "region", "", "")
 		fs.StringVar(&opts.Path, "file", "", "")
 	}
-	if opts.Command == Record {
+	if scripted {
+		fs.StringVar(&region, "region", "", "")
+	}
+	if video {
 		fs.IntVar(&fps, "fps", DefaultFPS, "")
 		fs.StringVar(&size, "size", "", "")
 		fs.DurationVar(&opts.Duration, "duration", 0, "")
@@ -106,12 +136,20 @@ func Parse(args []string, out io.Writer) (Options, error) {
 	if fs.NArg() > 0 {
 		return Options{}, usageErr("unexpected argument %q", fs.Arg(0))
 	}
-	if !capture {
+	if !scripted && !interactive {
 		return opts, nil
 	}
 
-	if opts.Path == "" {
+	if scripted && opts.Path == "" {
 		return Options{}, usageErr("-file is required")
+	}
+	if interactive {
+		// Set explicitly so "-file ''" is rejected rather than treated as auto.
+		explicit := false
+		fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "file" })
+		if explicit && opts.Path == "" {
+			return Options{}, usageErr("-file must not be empty")
+		}
 	}
 	if region != "" {
 		r, err := parseRegion(region)
@@ -120,7 +158,7 @@ func Parse(args []string, out io.Writer) (Options, error) {
 		}
 		opts.Region = r
 	}
-	if opts.Command == Record {
+	if video {
 		if fps < 1 || fps > ports.MaxFPS {
 			return Options{}, usageErr("invalid -fps %d: must be 1..%d", fps, ports.MaxFPS)
 		}

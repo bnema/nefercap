@@ -20,6 +20,20 @@ type Region struct{ X, Y, Width, Height int }
 type Target struct {
 	OutputID uint32
 	Region   Region
+	// WorkspaceID is a stable compositor identity, never an index or monitor
+	// alias. Nonzero requires a native capture session and a zero Region:
+	// its geometry is supplied live by the compositor, not a cached crop.
+	WorkspaceID uint64
+}
+
+// Workspace is native compositor target metadata. Region is output-local,
+// logical geometry. Active means that this workspace is currently displayed.
+type Workspace struct {
+	ID       uint64
+	OutputID uint32
+	Name     string
+	Region   Region
+	Active   bool
 }
 
 // PixelFormat names the native little-endian wl_shm 32-bit pixel layout.

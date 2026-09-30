@@ -20,9 +20,21 @@ func TestParseValid(t *testing.T) {
 		args []string
 		want cli.Options
 	}{
-		{"default gui", nil, cli.Options{Command: cli.GUI}},
-		{"gui debug", []string{"-debug"}, cli.Options{Command: cli.GUI, Debug: true}},
-		{"explicit gui", []string{"gui"}, cli.Options{Command: cli.GUI}},
+		{"default shot", nil, cli.Options{Command: cli.Shot}},
+		{"default shot debug", []string{"-debug"}, cli.Options{Command: cli.Shot, Debug: true}},
+		{"default shot flags", []string{"-file", "a.png", "-output", "DP-1"},
+			cli.Options{Command: cli.Shot, Path: "a.png", Output: "DP-1"}},
+		{"shot", []string{"shot"}, cli.Options{Command: cli.Shot}},
+		{"shot all", []string{"shot", "-file", "a.png", "-output", "DP-1", "-debug"},
+			cli.Options{Command: cli.Shot, Path: "a.png", Output: "DP-1", Debug: true}},
+		{"rec defaults", []string{"rec"}, cli.Options{Command: cli.Rec, Video: ports.VideoSettings{FPS: 30}}},
+		{"rec all", []string{"rec", "-file", "a.mkv", "-output", "eDP-1", "-fps", "60", "-size", "1280x720", "-duration", "10s", "-debug"},
+			cli.Options{Command: cli.Rec, Path: "a.mkv", Output: "eDP-1", Duration: 10 * time.Second, Debug: true,
+				Video: ports.VideoSettings{FPS: 60, Width: 1280, Height: 720}}},
+		{"stop", []string{"stop"}, cli.Options{Command: cli.Stop}},
+		{"stop debug", []string{"stop", "-debug"}, cli.Options{Command: cli.Stop, Debug: true}},
+		{"status", []string{"status"}, cli.Options{Command: cli.Status}},
+		{"status debug", []string{"status", "-debug"}, cli.Options{Command: cli.Status, Debug: true}},
 		{"outputs", []string{"outputs"}, cli.Options{Command: cli.Outputs}},
 		{"outputs debug", []string{"outputs", "-debug"}, cli.Options{Command: cli.Outputs, Debug: true}},
 		{"screenshot", []string{"screenshot", "-file", "a.png"},
@@ -58,14 +70,37 @@ func TestParseUsageErrors(t *testing.T) {
 	cases := map[string][]string{
 		"unknown command":          {"snap"},
 		"positional after command": {"outputs", "extra"},
-		"positional gui":           {"extra"},
+		"positional default":       {"extra"},
+		"positional shot":          {"shot", "extra"},
+		"positional stop":          {"stop", "extra"},
+		"gui removed":              {"gui"},
+		"gui removed with flag":    {"gui", "-debug"},
+		"empty shot file":          {"shot", "-file", ""},
+		"empty rec file":           {"rec", "-file", ""},
+		"empty default file":       {"-file", ""},
+		"region on shot":           {"shot", "-region", "0,0,10x10"},
+		"region on rec":            {"rec", "-region", "0,0,10x10"},
+		"region on default":        {"-region", "0,0,10x10"},
+		"fps on shot":              {"shot", "-fps", "30"},
+		"size on shot":             {"shot", "-size", "2x2"},
+		"duration on shot":         {"shot", "-duration", "1s"},
+		"fps zero on rec":          {"rec", "-fps", "0"},
+		"fps high on rec":          {"rec", "-fps", "121"},
+		"size odd on rec":          {"rec", "-size", "641x480"},
+		"size huge on rec":         {"rec", "-size", "16384x16384"},
+		"duration negative on rec": {"rec", "-duration", "-1s"},
+		"file on stop":             {"stop", "-file", "a"},
+		"output on stop":           {"stop", "-output", "DP-1"},
+		"file on status":           {"status", "-file", "a"},
+		"output on status":         {"status", "-output", "DP-1"},
+		"fps on status":            {"status", "-fps", "30"},
+		"file on outputs":          {"outputs", "-file", "a"},
 		"positional after flags":   {"record", "-file", "a.mkv", "extra"},
 		"unknown flag":             {"-nope"},
 		"unknown flag in command":  {"outputs", "-nope"},
 		"screenshot missing file":  {"screenshot"},
 		"record missing file":      {"record", "-fps", "30"},
 		"empty file":               {"screenshot", "-file", ""},
-		"capture flag on gui":      {"-file", "a.png"},
 		"capture flag on outputs":  {"outputs", "-output", "DP-1"},
 		"fps on screenshot":        {"screenshot", "-file", "a.png", "-fps", "30"},
 		"duration on screenshot":   {"screenshot", "-file", "a.png", "-duration", "1s"},
@@ -121,7 +156,7 @@ func TestParseErrorNamesProblem(t *testing.T) {
 }
 
 func TestParseHelp(t *testing.T) {
-	for _, args := range [][]string{{"-h"}, {"--help"}, {"-help"}, {"record", "--help"}, {"outputs", "-h"}} {
+	for _, args := range [][]string{{"-h"}, {"--help"}, {"-help"}, {"record", "--help"}, {"outputs", "-h"}, {"shot", "-h"}, {"rec", "-h"}, {"stop", "-h"}, {"status", "--help"}} {
 		var out bytes.Buffer
 		got, err := cli.Parse(args, &out)
 		assert.True(t, errors.Is(err, flag.ErrHelp), args)
@@ -132,7 +167,9 @@ func TestParseHelp(t *testing.T) {
 
 func TestUsageMentionsEverything(t *testing.T) {
 	u := cli.Usage()
-	for _, s := range []string{"gui", "outputs", "screenshot", "record", "-output", "-region", "-file", "-fps", "-size", "-duration", "-debug"} {
+	for _, s := range []string{"shot", "rec", "stop", "status", "outputs", "screenshot", "record",
+		"layer-shell", "drag", "click", "Escape", "Enter", "workspace", "1..9", "  r ", "  m ", "  w ", "  g ", "-output", "-region", "-file", "-fps", "-size", "-duration", "-debug"} {
 		assert.Contains(t, u, s)
 	}
+	assert.NotContains(t, u, "  gui ")
 }

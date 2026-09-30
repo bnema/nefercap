@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -26,11 +27,18 @@ const (
 	kindBuffer
 	kindScreencopy
 	kindFrame
+	kindPrivManager
+	kindPrivSession
+	kindPrivLayer
+	kindCompositor
+	kindSurface
 )
 
 const (
 	globalShm        = 1000
 	globalScreencopy = 1001
+	globalPrivate    = 1002
+	globalWlComp     = 1003
 )
 
 type outputSpec struct {
@@ -57,6 +65,46 @@ type compositorConfig struct {
 	readyEarly        bool // send ready right after the buffer events, before any copy
 	noShmOffer        bool // send only buffer_done: no wl_shm buffer is offered
 	duplicateGlobal   bool // announce the first output global twice
+
+	private privateConfig
+}
+
+// workspaceSpec is one private-protocol workspace advertisement.
+type workspaceSpec struct {
+	id     uint64
+	output string
+	name   string
+	region [4]int32
+	active bool
+}
+
+// privateConfig configures the private capture protocol of the peer. The wire
+// layout is the client's provisional one, see capture_session.go.
+type privateConfig struct {
+	enabled         bool
+	token           string // empty selects a default
+	workspaces      []workspaceSpec
+	refuse          bool          // answer begin_session with stopped
+	inactive        bool          // send an inactive state before the active one
+	stopOnPing      bool          // answer ping with stopped
+	swapToken       bool          // send a second state carrying a different token
+	badRevision     bool          // send a state whose revision goes back
+	zeroRevision    bool          // send a state with revision 0
+	pausedStart     bool          // the first state is paused (active 0) and no active follows
+	attachFail      int           // non-zero: answer attach_surface with attach_failed(value-1)
+	attachSilent    bool          // never answer attach_surface
+	attachDelay     time.Duration // delay before attached
+	attachScript    [][2]uint32   // layer events (opcode, argument) sent instead of attached
+	moveEachCapture bool          // push a new region with every capture request
+	attachError     bool          // answer attach_surface with wl_display.error(code 2)
+	stateRegion     *[4]int32
+}
+
+func (p privateConfig) tok() string {
+	if p.token == "" {
+		return testToken
+	}
+	return p.token
 }
 
 type poolMap struct{ data []byte }
@@ -89,8 +137,22 @@ type compositor struct {
 		buffer *bufferInfo
 	}
 	hasPending bool
-	copyEvent  chan struct{}
-	done       chan struct{}
+
+	// private protocol observations
+	privSessions  int
+	privPings     int
+	privDestroyed int
+	privRecord    uint32
+	privRequested [4]int32
+	privWorkspace uint64
+	privAttached  []string
+	privSessionID uint32
+	privRev       uint64
+	privLayers    []uint32
+	privManager   uint32
+	privLayerGone int
+	copyEvent     chan struct{}
+	done          chan struct{}
 
 	wmu sync.Mutex
 	out [4096]byte
@@ -298,6 +360,22 @@ func (c *compositor) handle(o *objects, id uint32, op uint16, body []byte, fds *
 		if op <= 1 {
 			c.capture(o, op, body)
 		}
+	case kindPrivManager:
+		c.handlePrivManager(o, id, op, body)
+	case kindPrivSession:
+		c.handlePrivSession(o, id, op)
+	case kindPrivLayer:
+		if op == 0 { // destroy
+			c.mu.Lock()
+			c.privLayerGone++
+			c.mu.Unlock()
+			c.send(1, 1, id)
+			delete(o.kinds, id)
+		}
+	case kindCompositor:
+		if op == 0 {
+			o.kinds[word(body, 0)] = kindSurface
+		}
 	case kindFrame:
 		switch op {
 		case 0:
@@ -319,6 +397,10 @@ func (c *compositor) advertise() {
 		c.sendGlobal(1, "wl_output", c.cfg.outputs[0].version)
 	}
 	c.sendGlobal(globalShm, "wl_shm", 1)
+	if c.cfg.private.enabled {
+		c.sendGlobal(globalPrivate, captureManagerIface, 1)
+		c.sendGlobal(globalWlComp, "wl_compositor", 4)
+	}
 	if !c.cfg.noScreencopy {
 		c.sendGlobal(globalScreencopy, "zwlr_screencopy_manager_v1", c.cfg.screencopyVersion)
 	}
@@ -359,6 +441,16 @@ func (c *compositor) bind(o *objects, name uint32, iface string, version, id uin
 		c.send(id, 0, 1)
 	case "zwlr_screencopy_manager_v1":
 		o.kinds[id] = kindScreencopy
+	case "wl_compositor":
+		o.kinds[id] = kindCompositor
+	case captureManagerIface:
+		o.kinds[id] = kindPrivManager
+		c.mu.Lock()
+		c.privManager = id
+		c.mu.Unlock()
+		for _, w := range c.cfg.private.workspaces {
+			c.sendWorkspace(id, w)
+		}
 	default:
 		c.t.Errorf("bind of unexpected interface %q", iface)
 	}
@@ -375,12 +467,17 @@ func (c *compositor) capture(o *objects, op uint16, body []byte) {
 	readyEarly, noShmOffer := c.cfg.readyEarly, c.cfg.noShmOffer
 	list, version := c.cfg.announce, c.cfg.screencopyVersion
 	c.captures++
+	move, moveWS := c.cfg.private.moveEachCapture, c.privWorkspace
+	moveN := int32(c.captures)
 	if op == 1 {
 		c.lastRegion = [4]int32{int32(word(body, 3)), int32(word(body, 4)), int32(word(body, 5)), int32(word(body, 6))}
 		c.lastRegionSet = true
 		w, h = word(body, 5), word(body, 6)
 	}
 	c.mu.Unlock()
+	if move {
+		c.pushState([4]int32{moveN, 0, 8, 4}, moveWS)
+	}
 	o.kinds[frame] = kindFrame
 	o.frames[frame] = &frameState{output: out, w: w, h: h}
 	if removeOnCapture {
@@ -535,4 +632,204 @@ func (c *compositor) flush(m []byte) {
 		// The client may have gone away during teardown.
 		return
 	}
+}
+
+// Private capture protocol peer (provisional layout, see capture_session.go).
+
+func (c *compositor) sendWorkspace(mgr uint32, w workspaceSpec) {
+	c.wmu.Lock()
+	m := c.begin(mgr, 0)
+	m = c.words(m, uint32(w.id>>32), uint32(w.id))
+	m = c.str(m, w.output)
+	m = c.str(m, w.name)
+	m = c.words(m, uint32(w.region[0]), uint32(w.region[1]), uint32(w.region[2]), uint32(w.region[3]))
+	act := uint32(0)
+	if w.active {
+		act = 1
+	}
+	m = c.words(m, act)
+	c.flush(m)
+	c.wmu.Unlock()
+}
+
+func (c *compositor) nextRevision() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.privRev++
+	return c.privRev
+}
+
+func (c *compositor) sendState(session uint32, token string, active bool, r [4]int32, ws uint64) {
+	rev := c.nextRevision()
+	if c.cfg.private.zeroRevision {
+		rev = 0
+	}
+	if c.cfg.private.badRevision {
+		rev = 10 - rev // 9, 8: the revision goes back
+	}
+	c.wmu.Lock()
+	m := c.begin(session, 0)
+	m = c.str(m, token)
+	act := uint32(0)
+	if active {
+		act = 1
+	}
+	m = c.words(m, act, uint32(r[0]), uint32(r[1]), uint32(r[2]), uint32(r[3]), uint32(ws>>32), uint32(ws), uint32(rev>>32), uint32(rev))
+	c.flush(m)
+	c.wmu.Unlock()
+}
+
+// pushState sends a state event on the current session, as a live geometry
+// change would.
+func (c *compositor) pushState(r [4]int32, ws uint64) {
+	c.mu.Lock()
+	id := c.privSessionID
+	c.mu.Unlock()
+	c.sendState(id, c.cfg.private.tok(), true, r, ws)
+}
+
+func (c *compositor) stopSession(reason uint32) {
+	c.mu.Lock()
+	id := c.privSessionID
+	c.mu.Unlock()
+	c.send(id, 1, reason)
+}
+
+func (c *compositor) handlePrivManager(o *objects, mgrID uint32, op uint16, body []byte) {
+	switch op {
+	case 1: // begin_session
+		session := word(body, 0)
+		out := c.cfg.outputs[o.outputs[word(body, 1)]]
+		r := [4]int32{int32(word(body, 2)), int32(word(body, 3)), int32(word(body, 4)), int32(word(body, 5))}
+		ws := uint64(word(body, 6))<<32 | uint64(word(body, 7))
+		o.kinds[session] = kindPrivSession
+		c.mu.Lock()
+		c.privSessions++
+		c.privSessionID = session
+		c.privRecord = word(body, 8)
+		c.privRequested = r
+		c.privWorkspace = ws
+		p := c.cfg.private
+		c.mu.Unlock()
+		if p.refuse {
+			c.send(session, 1, 6) // busy
+			return
+		}
+		if r == [4]int32{} {
+			r = [4]int32{0, 0, int32(out.width), int32(out.height)}
+		}
+		for _, w := range c.cfg.private.workspaces {
+			if w.id == ws && ws != 0 {
+				r = w.region // a workspace target is its whole frame
+			}
+		}
+		if p.stateRegion != nil {
+			r = *p.stateRegion
+		}
+		if p.inactive || p.pausedStart {
+			c.sendState(session, p.tok(), false, r, ws)
+		}
+		if !p.pausedStart {
+			c.sendState(session, p.tok(), true, r, ws)
+		}
+		if p.swapToken {
+			c.sendState(session, p.tok()+"x", true, r, ws)
+		}
+	case 2: // attach_surface(new_id layer, token, surface)
+		layer := word(body, 0)
+		n := int(word(body, 1))
+		tok := string(body[8 : 8+n-1])
+		o.kinds[layer] = kindPrivLayer
+		c.mu.Lock()
+		c.privAttached = append(c.privAttached, tok)
+		c.privLayers = append(c.privLayers, layer)
+		p := c.cfg.private
+		c.mu.Unlock()
+		switch {
+		case p.attachSilent:
+		case p.attachError:
+			c.wmu.Lock()
+			m := c.begin(1, 0)
+			m = c.words(m, mgrID, 2)
+			m = c.str(m, "surface_role")
+			c.flush(m)
+			c.wmu.Unlock()
+		case p.attachScript != nil:
+			for _, ev := range p.attachScript {
+				if ev[0] == 0 {
+					c.send(layer, 0)
+				} else {
+					c.send(layer, uint16(ev[0]), ev[1])
+				}
+			}
+		case p.attachFail != 0:
+			c.send(layer, 1, uint32(p.attachFail-1))
+		default:
+			time.Sleep(p.attachDelay)
+			c.send(layer, 0)
+		}
+	case 0: // destroy
+		c.send(1, 1, mgrID)
+		delete(o.kinds, mgrID)
+	}
+}
+
+func (c *compositor) handlePrivSession(o *objects, id uint32, op uint16) {
+	switch op {
+	case 0:
+		c.mu.Lock()
+		c.privDestroyed++
+		c.mu.Unlock()
+		c.send(1, 1, id)
+		delete(o.kinds, id)
+	case 1:
+		c.mu.Lock()
+		c.privPings++
+		stop := c.cfg.private.stopOnPing
+		c.mu.Unlock()
+		if stop {
+			c.send(id, 1, 2)
+		}
+	}
+}
+
+func (c *compositor) privAttachedCopy() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.privAttached...)
+}
+
+type privSnap struct {
+	requested  [4]int32
+	record     uint32
+	workspace  uint64
+	lastRegion [4]int32
+}
+
+func (c *compositor) snap() privSnap {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return privSnap{c.privRequested, c.privRecord, c.privWorkspace, c.lastRegion}
+}
+
+// detachLayer sends neferwl_capture_layer_v1.detached on the n-th attachment.
+func (c *compositor) detachLayer(n int, reason uint32) {
+	c.mu.Lock()
+	id := c.privLayers[n]
+	c.mu.Unlock()
+	c.send(id, 2, reason)
+}
+
+func (c *compositor) announceWorkspace(w workspaceSpec) {
+	c.mu.Lock()
+	id := c.privManager
+	c.mu.Unlock()
+	c.sendWorkspace(id, w)
+}
+
+func (c *compositor) removeWorkspace(id uint64) {
+	c.mu.Lock()
+	m := c.privManager
+	c.mu.Unlock()
+	c.send(m, 1, uint32(id>>32), uint32(id))
 }

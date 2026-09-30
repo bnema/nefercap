@@ -135,7 +135,7 @@ func (s *Source) capture(t ports.Target) (ports.Frame, error) {
 			if f.out.removed {
 				return ports.Frame{}, ports.ErrOutputNotFound
 			}
-			return ports.Frame{}, errors.New("wayland: compositor failed the capture")
+			return ports.Frame{}, errCompositorFailedCapture
 		case f.ready && !f.copied:
 			s.terminate()
 			return ports.Frame{}, errors.New("wayland: compositor completed a frame that was never copied")

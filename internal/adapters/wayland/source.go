@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bnema/wlturbo"
 	"github.com/bnema/wlturbo/protocol/core"
@@ -73,6 +74,13 @@ type Source struct {
 	outputs    map[uint32]*output
 	bound      int // wl_output globals bound so far
 	buf        shmBuffer
+
+	// Private capture session state, see capture_session.go.
+	private    *captureManager // nil when the compositor lacks the protocol
+	workspaces map[uint64]*workspace
+	metaErr    error // set once the private inventory was rejected
+	session    *captureSession
+	pingEvery  time.Duration
 }
 
 var _ ports.Source = (*Source)(nil)
@@ -97,10 +105,11 @@ func New(ctx context.Context, socket string) (*Source, error) {
 		return nil, fmt.Errorf("wayland: %w", err)
 	}
 	s := &Source{
-		log:     logging.For(ctx, "wayland"),
-		display: display,
-		wl:      display.Context(),
-		outputs: make(map[uint32]*output),
+		log:       logging.For(ctx, "wayland"),
+		display:   display,
+		wl:        display.Context(),
+		outputs:   make(map[uint32]*output),
+		pingEvery: sessionPingInterval,
 	}
 	stop := context.AfterFunc(ctx, s.terminate)
 	err = s.discover()
@@ -149,6 +158,9 @@ func (s *Source) discover() error {
 	s.screencopy.SetContext(s.wl)
 	if _, err := reg.BindNegotiated(screencopyIface, screencopyVersion, s.screencopy); err != nil {
 		return fmt.Errorf("wayland: bind %s: %w", screencopyIface, err)
+	}
+	if err := s.bindCaptureManager(); err != nil {
+		return err
 	}
 	return s.roundtrip()
 }
@@ -312,11 +324,7 @@ func (s *Source) Outputs(ctx context.Context) ([]ports.Output, error) {
 	if err == nil {
 		list = make([]ports.Output, 0, len(s.outputs))
 		for _, o := range s.outputs {
-			name := o.name
-			if name == "" { // wl_output older than version 4 has no name
-				name = fmt.Sprintf("output-%d", o.id)
-			}
-			list = append(list, ports.Output{ID: o.id, Name: name, Width: int(o.width), Height: int(o.height), Scale: int(o.scale)})
+			list = append(list, ports.Output{ID: o.id, Name: outputName(o), Width: int(o.width), Height: int(o.height), Scale: int(o.scale)})
 		}
 		slices.SortFunc(list, func(a, b ports.Output) int { return cmp.Compare(a.ID, b.ID) })
 	}
@@ -337,7 +345,7 @@ func (s *Source) Capture(ctx context.Context, t ports.Target) (ports.Frame, erro
 	if err := s.begin(ctx); err != nil {
 		return ports.Frame{}, err
 	}
-	frame, err := s.capture(t)
+	frame, err := s.captureTarget(t)
 	if err = s.finish(ctx, err); err != nil {
 		return ports.Frame{}, err
 	}

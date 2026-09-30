@@ -17,5 +17,7 @@ mocking:
   generatedMockNamePatterns: ['Mock{{Interface}}', '{{Interface}}Mock']
 ruleSettings:
   suspicious-business-logic-in-adapter:
-    # app is the composition root; starting core and wiring channels is its job.
-    excludePaths: [internal/app/app.go]
+    # Run/resolveOutput and recordInteractive wire sessions, GUI and core.
+    # resolveCapture maps compositor-granted session state to a screencopy
+    # target; it makes no selection or fallback decision.
+    excludePaths: [internal/app/app.go, internal/app/record_interactive.go, internal/adapters/wayland/capture_session.go]

@@ -10,7 +10,6 @@ import (
 
 	"github.com/bnema/nefercap/internal/adapters/cli"
 	"github.com/bnema/nefercap/internal/adapters/ffmpeg"
-	"github.com/bnema/nefercap/internal/adapters/gui"
 	"github.com/bnema/nefercap/internal/adapters/png"
 	"github.com/bnema/nefercap/internal/adapters/wayland"
 	"github.com/bnema/nefercap/internal/core"
@@ -22,6 +21,9 @@ const discoveryTimeout = 5 * time.Second
 
 // Run owns the source connection and all capture work for one invocation.
 func Run(ctx context.Context, options cli.Options, output io.Writer) (err error) {
+	if handled, controlErr := controlCommand(ctx, options.Command, output); handled {
+		return controlErr
+	}
 	discovery, cancel := context.WithTimeout(ctx, discoveryTimeout)
 	source, err := wayland.New(discovery, "")
 	if err != nil {
@@ -47,9 +49,12 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 		return nil
 	}
 	var selection ports.Selection
-	if options.Command == cli.GUI {
+	if options.Command == cli.Shot || options.Command == cli.Rec {
+		if err := rejectCompetingSelector(ctx); err != nil {
+			return err
+		}
 		var accepted bool
-		selection, accepted, err = gui.New().Select(ctx, outputs)
+		selection, accepted, err = chooseInteractive(ctx, source, outputs, options)
 		if err != nil || !accepted {
 			return err
 		}
@@ -70,12 +75,40 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 	}
 	log := logging.For(ctx, "app")
 	log.Info().Str("mode", string(selection.Mode)).Msg("capture started")
-	err = core.New(source, png.New(), ffmpeg.New()).Run(ctx, selection)
-	if err != nil {
+	var saved bool
+	if options.Command == cli.Rec || options.Command == cli.Record {
+		var outcome recordingOutcome
+		outcome, err = recordInteractive(ctx, source, outputs, selection)
+		saved = outcome.Saved
+	} else {
+		if selection.Target.WorkspaceID != 0 {
+			state, sessionErr := source.BeginSession(ctx, selection.Target, false)
+			if sessionErr != nil {
+				return sessionError(ctx, false, sessionErr)
+			}
+			selection.Target = state.Target
+		}
+		err = core.New(source, png.New(), ffmpeg.New()).Run(ctx, selection)
+		saved = err == nil
+	}
+	if saved && err == nil {
+		log.Info().Msg("capture complete")
+	}
+	return finishCapture(output, selection.Path, saved, err)
+}
+
+// finishCapture prints the path of a file that exists, whatever error the
+// capture ended with, so a reported failure never hides where the file is.
+// Nothing is printed when no file was saved. The original error and a failed
+// write are both returned.
+func finishCapture(output io.Writer, path string, saved bool, err error) error {
+	if !saved {
 		return err
 	}
-	log.Info().Msg("capture complete")
-	return nil
+	if _, printErr := fmt.Fprintln(output, path); printErr != nil {
+		return errors.Join(err, printErr)
+	}
+	return err
 }
 
 // discoveryError preserves a user interrupt, but reports local timeouts and

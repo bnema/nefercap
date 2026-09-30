@@ -45,8 +45,8 @@ arch:
 # Steady-state allocation guards. PERF_TESTS lists exact test names and PERF_PKGS
 # the packages holding them. Every named test must exist, so the guard cannot
 # pass vacuously when a frame-path test is removed or renamed.
-PERF_TESTS := TestFrameAllocations TestSelectionAllocations TestFormAllocations TestVideoRowsAllocations TestWriteSteadyStateAllocations TestResolveOutputAllocations TestCaptureAllocations
-PERF_PKGS := ./internal/ports ./internal/core ./internal/adapters/gui ./internal/adapters/ffmpeg ./internal/app ./internal/adapters/wayland
+PERF_TESTS := TestFrameAllocations TestSelectionAllocations TestPickerAllocations TestSelectorAllocations TestRefreshAllocations TestVideoRowsAllocations TestWriteSteadyStateAllocations TestResolveOutputAllocations TestCaptureAllocations
+PERF_PKGS := ./internal/ports ./internal/core ./internal/adapters/selection ./internal/adapters/indicator ./internal/adapters/ffmpeg ./internal/app ./internal/adapters/wayland
 perf_empty :=
 perf_space := $(perf_empty) $(perf_empty)
 PERF_RE := ^($(subst $(perf_space),|,$(strip $(PERF_TESTS))))$$
