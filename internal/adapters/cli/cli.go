@@ -25,8 +25,8 @@ const (
 	Rec    Command = "rec"
 	Stop   Command = "stop"
 	Status Command = "status"
-	// Outputs, Screenshot and Record are the scriptable commands. They never
-	// open the selector and require -file.
+	// Outputs, Screenshot and Record never open the selector. Outputs needs
+	// no -file; Screenshot requires it unless clipboard-only, Record always.
 	Outputs    Command = "outputs"
 	Screenshot Command = "screenshot"
 	Record     Command = "record"

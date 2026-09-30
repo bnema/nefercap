@@ -56,14 +56,14 @@ func recordInteractive(ctx context.Context, source *wayland.Source, outputs []po
 
 	hud := startHUD(hudCtx, output, session.Token, hudStop, life)
 	end := ending{}
-	started := false
+	var video *ffmpeg.Writer
 	// Do not start the encoder until the compositor acknowledges exclusion.
 	// A protocol roundtrip alone does not prove the core applied the marking.
 	select {
 	case <-hud.ready:
-		started = true
+		video = ffmpeg.New()
 		captureDone := make(chan error, 1)
-		go func() { captureDone <- core.New(source, nil, ffmpeg.New()).Run(recordCtx, sel) }()
+		go func() { captureDone <- core.New(source, nil, video).Run(recordCtx, sel) }()
 		select {
 		case end.runErr = <-captureDone:
 			life.beginShutdown()
@@ -84,9 +84,10 @@ func recordInteractive(ctx context.Context, source *wayland.Source, outputs []po
 	end.parentErr = ctx.Err()
 	end.userStop = context.Cause(recordCtx) == errUserStop
 	err = classify(end)
-	if started && end.runErr == nil {
-		// Frames were written: the file exists whatever the HUD reported after.
-		outcome.Saved = savedFile(sel.Path)
+	if video != nil {
+		// Finalization may retain frames despite a late capture or HUD error.
+		// The writer knows whether it kept its file, not a pre-existing path.
+		outcome.Saved = video.Saved
 	}
 	return outcome, err
 }

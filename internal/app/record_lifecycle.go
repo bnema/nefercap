@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"os"
 	"sync/atomic"
 
 	"github.com/bnema/nefercap/internal/adapters/uierrors"
@@ -164,12 +163,4 @@ func classify(e ending) error {
 		return e.parentErr
 	}
 	return e.runErr
-}
-
-// savedFile reports whether path is a non-empty regular file. Call it only
-// after the core reported success: the writer reserves the path exclusively
-// and removes it when aborting, so a file there is this recording.
-func savedFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }

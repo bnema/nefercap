@@ -187,6 +187,9 @@ func TestStartRefusesExistingPath(t *testing.T) {
 	if got, _ := os.ReadFile(path); string(got) != "keep" {
 		t.Fatalf("Close touched foreign file: %q", got)
 	}
+	if w.Saved {
+		t.Fatal("reported a pre-existing file as saved")
+	}
 }
 
 func TestStartFailureRemovesReservedPath(t *testing.T) {
@@ -259,6 +262,9 @@ func TestDrainLifecycle(t *testing.T) {
 	}
 	if err := w.Abort(); err != nil {
 		t.Fatalf("Abort after Close: %v", err)
+	}
+	if !w.Saved {
+		t.Fatal("finalized recording not reported as saved")
 	}
 	if err := w.Write(ctx, first); !errors.Is(err, ports.ErrClosed) {
 		t.Fatalf("Write after Close: %v", err)
@@ -614,6 +620,9 @@ func TestAbortDiscardsHealthyRecording(t *testing.T) {
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close after Abort = %v", err)
+	}
+	if w.Saved {
+		t.Fatal("aborted recording reported as saved")
 	}
 }
 

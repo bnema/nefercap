@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // prefix starts the recording label; the elapsed time follows it.
@@ -21,19 +22,30 @@ const maxLabelRunes = 12
 // paragraph separators U+2028 and U+2029, and the bidirectional controls
 // (Unicode Bidi_Control) that could reorder the timer beside it.
 func suffixFor(label string) string {
-	var r []rune
+	var r [maxLabelRunes + 1]rune
+	n := 0
 	for _, c := range label {
 		if keepRune(c) {
-			r = append(r, c)
+			r[n] = c
+			n++
+			if n > maxLabelRunes {
+				r[maxLabelRunes-1] = '…'
+				n = maxLabelRunes
+				break
+			}
 		}
 	}
-	if len(r) == 0 {
+	if n == 0 {
 		return ""
 	}
-	if len(r) > maxLabelRunes {
-		r = append(r[:maxLabelRunes-1], '…')
+	// Encode prefix and label together: a long rune-to-string conversion
+	// followed by concatenation would allocate an intermediate string too.
+	var buf [len(" · ") + maxLabelRunes*utf8.UTFMax]byte
+	b := buf[:copy(buf[:], " · ")]
+	for _, c := range r[:n] {
+		b = utf8.AppendRune(b, c)
 	}
-	return " · " + string(r)
+	return string(b)
 }
 
 // keepRune reports whether c may appear in the label.

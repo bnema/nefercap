@@ -2,6 +2,7 @@ package indicator
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,37 @@ func TestTargetLabelIsSingleLinePrintable(t *testing.T) {
 	}
 	assert.Equal(t, " · café 東京", suffixFor("café 東京"), "printable non-ASCII stays")
 	assert.Equal(t, "", suffixFor("\u202e\u2028"))
+}
+
+func TestSuffixLongInput(t *testing.T) {
+	label := strings.Repeat("\x00界", 100000)
+	assert.Equal(t, " · 界界界界界界界界界界界…", suffixFor(label))
+	assert.Equal(t, " · 123456789012", suffixFor("123456789012"+strings.Repeat("\n", 100000)))
+}
+
+var suffixSink string
+
+func TestSuffixAllocations(t *testing.T) {
+	label := strings.Repeat("\x00界", 100000)
+	allocs := testing.AllocsPerRun(100, func() { suffixSink = suffixFor(label) })
+	t.Logf("long suffix: %.0f allocs/run", allocs)
+	if allocs > 1 {
+		t.Fatalf("suffix allocated %.0f times, want only the returned string", allocs)
+	}
+}
+
+func BenchmarkSuffixFor(b *testing.B) {
+	for name, label := range map[string]string{
+		"short": "workspace",
+		"long":  strings.Repeat("\x00界", 100000),
+	} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				suffixSink = suffixFor(label)
+			}
+		})
+	}
 }
 
 func TestRefreshAllocations(t *testing.T) {

@@ -90,6 +90,9 @@ type Writer struct {
 
 	watchMu   sync.Mutex
 	watchDead bool
+	// Saved reports whether Close retained the reserved file. Read it only
+	// after the owning Close or Abort returns, independently of capture errors.
+	Saved     bool
 	startStop func() bool
 	writeStop func() bool
 	writeDone <-chan struct{}
@@ -471,6 +474,8 @@ func (w *Writer) shutdown(abort bool) error {
 	}
 	if err != nil {
 		err = errors.Join(err, w.removeOutput())
+	} else {
+		w.Saved = true
 	}
 	return err
 }

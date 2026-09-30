@@ -257,22 +257,6 @@ func TestFinishCapture(t *testing.T) {
 	}
 }
 
-func TestSavedFile(t *testing.T) {
-	dir := t.TempDir()
-	missing := filepath.Join(dir, "missing.mp4")
-	empty := filepath.Join(dir, "empty.mp4")
-	full := filepath.Join(dir, "full.mp4")
-	if err := os.WriteFile(empty, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(full, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if savedFile(missing) || savedFile(empty) || savedFile(dir) || !savedFile(full) {
-		t.Fatal("saved file detection wrong")
-	}
-}
-
 // The production core with generated ports: cancelling during the first
 // capture aborts nothing and writes nothing, and the lifecycle calls it success.
 func TestCancelDuringFirstFrameIsNotAFailure(t *testing.T) {
@@ -293,8 +277,8 @@ func TestCancelDuringFirstFrameIsNotAFailure(t *testing.T) {
 	if err := classify(ending{runErr: runErr, userStop: context.Cause(ctx) == errUserStop}); err != nil {
 		t.Fatalf("first frame cancel is a failure: %v", err)
 	}
-	if savedFile(path) {
-		t.Fatal("file exists")
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no recording file: %v", err)
 	}
 }
 

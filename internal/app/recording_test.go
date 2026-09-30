@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +22,19 @@ import (
 // A generated source mock supplies pixels; the production core and FFmpeg
 // writer run together, exercising cancellation at their owning boundary.
 func TestRecordingFinalizesAfterCancellation(t *testing.T) {
+	testRecordingFinalizes(t, "cancel")
+}
+
+func TestRecordingFinalizesAfterLateCaptureFailure(t *testing.T) {
+	testRecordingFinalizes(t, "capture")
+}
+
+func TestRecordingFinalizesAfterLateGeometryFailure(t *testing.T) {
+	testRecordingFinalizes(t, "geometry")
+}
+
+func testRecordingFinalizes(t *testing.T, failure string) {
+	t.Helper()
 	for _, binary := range []string{"ffmpeg", "ffprobe"} {
 		if _, err := exec.LookPath(binary); err != nil {
 			t.Skip(binary + " unavailable")
@@ -33,17 +49,45 @@ func TestRecordingFinalizesAfterCancellation(t *testing.T) {
 	target := ports.Target{OutputID: 1}
 	source := portsmocks.NewMockSource(t)
 	n := 0
+	captureErr := errors.New("capture session lost")
 	source.EXPECT().Capture(ctx, target).RunAndReturn(func(context.Context, ports.Target) (ports.Frame, error) {
 		n++
 		if n == 5 {
-			cancel()
-			return ports.Frame{}, context.Canceled
+			switch failure {
+			case "capture":
+				return ports.Frame{}, captureErr
+			case "geometry":
+				return ports.Frame{}, nil
+			default:
+				cancel()
+				return ports.Frame{}, context.Canceled
+			}
 		}
 		return frame, nil
 	})
 	path := filepath.Join(t.TempDir(), "recording.mp4")
-	if err := core.New(source, nil, ffmpeg.New()).Run(ctx, ports.Selection{Mode: ports.Record, Target: target, Path: path, Video: ports.VideoSettings{FPS: 30}}); err != nil {
-		t.Fatal(err)
+	video := ffmpeg.New()
+	runErr := core.New(source, nil, video).Run(ctx, ports.Selection{Mode: ports.Record, Target: target, Path: path, Video: ports.VideoSettings{FPS: 30}})
+	switch failure {
+	case "capture":
+		if !errors.Is(runErr, captureErr) {
+			t.Fatalf("capture failure lost: %v", runErr)
+		}
+	case "geometry":
+		if runErr == nil || !strings.Contains(runErr.Error(), "invalid frame dimensions") {
+			t.Fatalf("geometry failure lost: %v", runErr)
+		}
+	default:
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+	}
+	if !video.Saved {
+		t.Fatal("finalized recording not reported as saved")
+	}
+	var out bytes.Buffer
+	if err := finishCapture(&out, path, video.Saved, runErr); err != runErr || out.String() != path+"\n" {
+		t.Fatalf("retained path or recording error lost: %q %v", out.String(), err)
 	}
 	probeCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stop()

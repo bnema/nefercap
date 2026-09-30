@@ -5,8 +5,23 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/bnema/nefercap/internal/core"
+	portsmocks "github.com/bnema/nefercap/internal/mocks/ports"
 	"github.com/bnema/nefercap/internal/ports"
 )
+
+func TestScreenshotWithoutVideoWriter(t *testing.T) {
+	ctx := context.Background()
+	target := ports.Target{OutputID: 1}
+	frame := ports.Frame{Pixels: make([]byte, 16), Width: 2, Height: 2, Stride: 8, Format: ports.XRGB8888}
+	source := portsmocks.NewMockSource(t)
+	writer := portsmocks.NewMockScreenshotWriter(t)
+	source.EXPECT().Capture(ctx, target).Return(frame, nil).Once()
+	writer.EXPECT().Save(ctx, frame, "shot.png").Return(nil).Once()
+	if err := core.New(source, writer, nil).Run(ctx, ports.Selection{Mode: ports.Screenshot, Target: target, Path: "shot.png"}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDiscoveryError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

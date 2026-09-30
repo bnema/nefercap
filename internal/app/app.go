@@ -10,7 +10,6 @@ import (
 
 	"github.com/bnema/nefercap/internal/adapters/cli"
 	"github.com/bnema/nefercap/internal/adapters/clipboard"
-	"github.com/bnema/nefercap/internal/adapters/ffmpeg"
 	"github.com/bnema/nefercap/internal/adapters/png"
 	"github.com/bnema/nefercap/internal/adapters/wayland"
 	"github.com/bnema/nefercap/internal/core"
@@ -95,7 +94,7 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 			copied = clipboard.NewWriter(writer, clipboard.New())
 			writer = copied
 		}
-		err = core.New(source, writer, ffmpeg.New()).Run(ctx, selection)
+		err = core.New(source, writer, nil).Run(ctx, selection)
 		saved = err == nil && selection.Path != ""
 		if copied != nil {
 			saved = copied.Saved

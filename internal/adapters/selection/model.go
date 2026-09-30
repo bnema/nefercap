@@ -235,7 +235,7 @@ func outputKey(name string, n int) (int, bool) {
 	return i, i < n
 }
 
-// settle mirrors the picker's terminal state and refreshes the label.
+// refreshFooter rebuilds the footer only when the target kind or workspace changes.
 func (m *model) refreshFooter() {
 	kind := m.picker.Kind()
 	_, _, workspace := m.picker.Workspace()
@@ -245,6 +245,7 @@ func (m *model) refreshFooter() {
 	}
 }
 
+// settle mirrors the picker's terminal state and refreshes the label.
 func (m *model) settle() {
 	m.refreshFooter()
 	switch m.picker.Status() {
