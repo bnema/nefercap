@@ -50,6 +50,7 @@ Opening screenshot selection while a recording is active is refused: its overlay
 - For capture: `zwlr_screencopy_manager_v1`.
 - For recording indicators and workspace targets: NeferWL's native capture-session protocol.
 - FFmpeg with `libx264` for silent H.264 video in fragmented MP4.
+- `wl-copy` (wl-clipboard) for clipboard screenshots.
 
 A standard compositor can support monitor/region screenshots. Recording refuses to start without native session support rather than capture its own controls. Standard capture clients keep their normal behavior and see the HUD and border.
 
@@ -88,12 +89,6 @@ go test ./... -run '^$' -bench . -benchmem
 ```
 
 Mockery v3 generates test doubles. Allocation guards cover frame views, selection state, unchanged overlay geometry, HUD refresh, video rows, encoder writes and output lookup. Protocol capture has a measured allocation budget; the application does not claim zero total allocations.
-
-## Local dependencies
-
-This repository has no remote. NeferGUI is pinned to a signed local commit with layer-shell support, using a Go pseudo-version rather than an unpublished release tag. Its exact source is cached through an offline file-based module proxy.
-
-The bootstrap worktree's ignored `.local-deps/` contains source archives and proxy tooling. Builds on this machine work with `GOWORK=off GOPROXY=off`; another machine needs those exact sources or matching module-proxy entries. `go.mod` and `go.sum` pin the versions and hashes.
 
 ## License
 
