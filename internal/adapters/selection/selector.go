@@ -49,6 +49,7 @@ type Selector struct {
 	video      ports.VideoSettings
 	workspaces []ports.Workspace
 	grid       bool
+	toggle     bool
 }
 
 var _ ports.Selector = (*Selector)(nil)
@@ -62,13 +63,17 @@ var _ ports.Selector = (*Selector)(nil)
 // Selection.Path. The first output passed to Select opens first, so the caller
 // orders outputs to put the preferred one first.
 func New(mode ports.Mode, video ports.VideoSettings, workspaces []ports.Workspace, grid bool) *Selector {
-	if mode == ports.Record && video.FPS == 0 {
+	if video.FPS == 0 {
 		video.FPS = DefaultFPS
 	}
-	if mode != ports.Record {
-		video = ports.VideoSettings{}
-	}
 	return &Selector{mode: mode, video: video, workspaces: append([]ports.Workspace(nil), workspaces...), grid: grid}
+}
+
+// AllowToggle lets Tab switch between screenshot and record selection. The
+// starting mode is New's; the target selection is kept across a switch.
+func (s *Selector) AllowToggle() *Selector {
+	s.toggle = true
+	return s
 }
 
 // Select blocks until the user accepts a selection (true), aborts with Escape
@@ -108,6 +113,10 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	for i := range outputs {
 		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
+		if s.toggle {
+			m.toggle, m.wake = true, make(chan struct{}, 1)
+			sess.wakes = append(sess.wakes, m.wake)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -119,7 +128,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	if err != nil || !ok {
 		return ports.Selection{}, false, err
 	}
-	return s.selection(result), true, nil
+	return s.selectionFor(modeAfter(s.mode, sess.toggles.Load()), result), true, nil
 }
 
 // run shows one overlay on its own output until the context ends.
@@ -128,7 +137,7 @@ func run(ctx context.Context, sheet string, m *model) error {
 	if m.index == 0 {
 		kb = nefergui.KeyboardExclusive
 	}
-	return nefergui.Run(ctx, m, view,
+	opts := []nefergui.WindowOption{
 		nefergui.Title("NeferCap selector"),
 		nefergui.Size(1, 1),
 		nefergui.Styles(sheet),
@@ -136,7 +145,11 @@ func run(ctx context.Context, sheet string, m *model) error {
 		nefergui.Layer(layerConfig(m.outputs[m.index].Name, kb)),
 		nefergui.OnResize(m.resize),
 		nefergui.OnInput(m.input),
-	)
+	}
+	if m.wake != nil {
+		opts = append(opts, nefergui.Wake(m.wake))
+	}
+	return nefergui.Run(ctx, m, view, opts...)
 }
 
 // layerConfig is one overlay: every edge, above windows, the given keyboard
@@ -157,5 +170,13 @@ func layerConfig(output string, keyboard nefergui.KeyboardMode) nefergui.LayerCo
 // comes live from the compositor, identified by WorkspaceID), a dragged region
 // keeps its explicit output-local geometry.
 func (s *Selector) selection(r core.PickResult) ports.Selection {
-	return ports.Selection{Mode: s.mode, Target: r.Target(), Video: s.video}
+	return s.selectionFor(s.mode, r)
+}
+
+func (s *Selector) selectionFor(mode ports.Mode, r core.PickResult) ports.Selection {
+	sel := ports.Selection{Mode: mode, Target: r.Target()}
+	if mode == ports.Record {
+		sel.Video = s.video
+	}
+	return sel
 }

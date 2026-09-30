@@ -27,7 +27,11 @@ const (
 // here is locked. The decision leaves through the shared session, never through
 // this struct.
 type model struct {
-	mode    ports.Mode
+	base    ports.Mode // mode the selector started in
+	mode    ports.Mode // current mode: base flipped by the session's Tab toggles
+	toggle  bool       // Tab switches shot <-> rec (all-in-one only)
+	seen    uint32     // session toggles already applied to mode
+	wake    chan struct{}
 	outputs []ports.Output
 	index   int // the output this overlay covers; every output has its own model
 
@@ -48,12 +52,36 @@ type model struct {
 	header          string          // static per surface
 	footerText      string
 	footerKind      core.PickKind
+	footerMode      ports.Mode
 	footerWorkspace bool
 	label           label
 }
 
 func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
-	return &model{mode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false)}
+	return &model{base: mode, mode: mode, footerMode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false, false)}
+}
+
+// otherMode is the mode a Tab switches to.
+func otherMode(mode ports.Mode) ports.Mode {
+	if mode == ports.Record {
+		return ports.Screenshot
+	}
+	return ports.Record
+}
+
+// modeAfter is base after n toggles.
+func modeAfter(base ports.Mode, n uint32) ports.Mode {
+	if n%2 == 1 {
+		return otherMode(base)
+	}
+	return base
+}
+
+// syncMode applies toggles made on any overlay. It never allocates.
+func (m *model) syncMode() {
+	if n := m.sess.toggles.Load(); n != m.seen {
+		m.seen, m.mode = n, modeAfter(m.base, n)
+	}
 }
 
 // resize is the OnResize callback. A logical size change (re)starts the
@@ -158,6 +186,7 @@ func (m *model) fail(err error) {
 // and never allocates.
 type visible struct {
 	rect     ports.Region
+	rec      bool
 	dragging bool
 	kind     core.PickKind
 	grid     bool
@@ -166,7 +195,7 @@ type visible struct {
 
 func (m *model) snapshot() visible {
 	r, _ := m.picker.Rect()
-	return visible{r, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status()}
+	return visible{r, m.mode == ports.Record, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status()}
 }
 
 // input is the OnInput callback. It reports whether the drawn state changed,
@@ -178,6 +207,7 @@ func (m *model) input(ev nefergui.InputEvent) bool {
 	if m.end != endNone || !m.sized {
 		return false
 	}
+	m.syncMode()
 	before, endBefore := m.snapshot(), m.end
 	switch ev.Kind {
 	case nefergui.InputPointerMotion:
@@ -215,6 +245,11 @@ func (m *model) key(name string) {
 		m.picker.SelectRegion()
 	case "g", "G":
 		m.grid = !m.grid
+	case "Tab":
+		if m.toggle {
+			m.sess.toggle()
+			m.syncMode()
+		}
 	case "Return", "KP_Enter":
 		m.picker.Confirm()
 	default:
@@ -235,13 +270,13 @@ func outputKey(name string, n int) (int, bool) {
 	return i, i < n
 }
 
-// refreshFooter rebuilds the footer only when the target kind or workspace changes.
+// refreshFooter rebuilds the footer only when the mode, target kind or workspace changes.
 func (m *model) refreshFooter() {
 	kind := m.picker.Kind()
 	_, _, workspace := m.picker.Workspace()
-	if kind != m.footerKind || workspace != m.footerWorkspace {
-		m.footerKind, m.footerWorkspace = kind, workspace
-		m.footerText = footerText(m.mode, kind, workspace)
+	if kind != m.footerKind || workspace != m.footerWorkspace || m.mode != m.footerMode {
+		m.footerKind, m.footerWorkspace, m.footerMode = kind, workspace, m.mode
+		m.footerText = footerText(m.mode, kind, workspace, m.toggle)
 	}
 }
 

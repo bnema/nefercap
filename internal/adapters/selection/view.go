@@ -2,6 +2,8 @@ package selection
 
 import (
 	"github.com/bnema/nefergui"
+
+	"github.com/bnema/nefercap/internal/ports"
 )
 
 // view draws the scene. Geometry goes through Node.Rect, so no CSS strings
@@ -9,6 +11,8 @@ import (
 // area are not emitted at all, so an idle surface is one dim box plus the
 // header and footer, and no empty chip is painted.
 func view(f *nefergui.Frame, m *model) {
+	m.syncMode() // a Tab on another overlay redraws this one
+	m.refreshFooter()
 	root := f.Root(nefergui.Class("root"))
 	st := root.Stack(nefergui.Class("scene"))
 	s := m.scene()
@@ -23,6 +27,14 @@ func view(f *nefergui.Frame, m *model) {
 	}
 	if n := tag(st, "label", s.label); n.ok {
 		n.node.Text(m.label.text)
+	}
+	if s.badge.w > 0 && s.badge.h > 0 {
+		class := "tag"
+		if m.mode == ports.Record {
+			class = "rec"
+		}
+		st.Box(nefergui.Key("badge"), nefergui.Class("tag"), nefergui.Class(class)).
+			Rect(s.badge.x, s.badge.y, s.badge.w, s.badge.h).Text(badgeText(m.mode))
 	}
 	if n := tag(st, "header", s.header); n.ok {
 		n.node.Text(m.header)

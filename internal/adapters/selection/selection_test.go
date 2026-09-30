@@ -632,8 +632,8 @@ func TestLabelContentHoldsMonospaceLine(t *testing.T) {
 }
 
 func TestFooterAndHeaderText(t *testing.T) {
-	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false), "shot · R region")
-	assert.Contains(t, footerText(ports.Record, core.PickRegion, false), "rec · R region")
+	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false, false), "shot · R region")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false), "rec · R region")
 	assert.Equal(t, "DP-1 · 1/2 · keys 1-2 pick monitor", headerText(testOutputs, 0))
 	assert.Equal(t, "DP-1", headerText(testOutputs[:1], 0))
 	i, ok := outputKey("2", 2)

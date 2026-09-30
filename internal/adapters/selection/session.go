@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/bnema/nefercap/internal/adapters/uierrors"
 	"github.com/bnema/nefercap/internal/core"
@@ -19,6 +20,11 @@ var errOverlayClosed = errors.New("selection: overlay closed by the compositor")
 type session struct {
 	cancel context.CancelFunc
 
+	// toggles counts Tab presses on any overlay; wakes redraw every overlay
+	// after one. wakes is set before the overlays start and never changes.
+	toggles atomic.Uint32
+	wakes   []chan struct{}
+
 	mu       sync.Mutex
 	decided  bool
 	accepted bool
@@ -27,6 +33,17 @@ type session struct {
 }
 
 func newSession(cancel context.CancelFunc) *session { return &session{cancel: cancel} }
+
+// toggle flips the capture mode for every overlay and asks each to redraw.
+func (s *session) toggle() {
+	s.toggles.Add(1)
+	for _, w := range s.wakes {
+		select {
+		case w <- struct{}{}:
+		default:
+		}
+	}
+}
 
 // accept records the first decision and ends every overlay.
 func (s *session) accept(r core.PickResult) {

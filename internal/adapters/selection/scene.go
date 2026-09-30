@@ -1,6 +1,8 @@
 package selection
 
 import (
+	"strings"
+
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/ports"
 )
@@ -20,23 +22,51 @@ const (
 
 // footerText is rebuilt only when the capture mode, picker kind or workspace
 // availability changes; pointer motion never formats hints.
-func footerText(mode ports.Mode, kind core.PickKind, workspace bool) string {
-	text, action := "shot · R region · M monitor", "capture"
+func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle bool) string {
+	action, name, other := "capture", "shot", "rec"
 	if mode == ports.Record {
-		text, action = "rec · R region · M monitor", "record"
+		action, name, other = "record", "rec", "shot"
 	}
+	var b strings.Builder
+	b.Grow(192) // one allocation for the whole legend
+	b.WriteString(name)
+	if toggle {
+		b.WriteString(" · Tab ")
+		b.WriteString(other)
+	}
+	b.WriteString(" · R region · M monitor")
 	if workspace {
-		text += " · W workspace"
+		b.WriteString(" · W workspace")
 	}
-	text += " · G grid · Esc cancel\n"
+	b.WriteString(" · G grid · Esc cancel\n")
 	switch kind {
-	case core.PickMonitor:
-		return text + "Enter " + action + " monitor · click " + action + " monitor"
-	case core.PickWorkspace:
-		return text + "Enter " + action + " workspace · click " + action + " workspace"
+	case core.PickMonitor, core.PickWorkspace:
+		target := " monitor"
+		if kind == core.PickWorkspace {
+			target = " workspace"
+		}
+		b.WriteString("Enter ")
+		b.WriteString(action)
+		b.WriteString(target)
+		b.WriteString(" · click ")
+		b.WriteString(action)
+		b.WriteString(target)
 	default:
-		return text + "drag + release " + action + " region · click " + action + " monitor"
+		b.WriteString("drag + release ")
+		b.WriteString(action)
+		b.WriteString(" region · click ")
+		b.WriteString(action)
+		b.WriteString(" monitor")
 	}
+	return b.String()
+}
+
+// badgeText is the always-visible mode badge; recBadge is styled red.
+func badgeText(mode ports.Mode) string {
+	if mode == ports.Record {
+		return "● REC"
+	}
+	return "SHOT"
 }
 
 // frect is a float rectangle in surface-local logical pixels, the unit
@@ -51,6 +81,7 @@ type scene struct {
 	grid   [core.GridLineCount]frect // whole-monitor guides: three vertical then three horizontal
 	label  frect
 	header frect
+	badge  frect // top-left mode badge
 	footer frect
 }
 
@@ -105,6 +136,7 @@ func (m *model) scene() scene {
 	}
 	hw, hh := min(headerWidth(m.header), w), min(headerH, h)
 	s.header = frect{max(w-hw-margin, 0), min(margin, max(h-hh, 0)), hw, hh}
+	s.placeBadge(m.mode, w, h)
 	// Keep workspace dimensions clear of the output header; region and
 	// monitor labels retain their independent placement.
 	if m.picker.Kind() == core.PickWorkspace && s.label.w > 0 &&
@@ -115,10 +147,36 @@ func (m *model) scene() scene {
 			s.label.y = y
 		}
 	}
+	s.clearLabelOfBadge(fr, h) // the header move can bring the label back to it
 	fw := min(footerW, w)
 	fh := min(footerHeight(m.footerText, fw), h)
 	s.footer = frect{(w - fw) / 2, max(h-fh-margin, 0), fw, fh}
 	return s
+}
+
+// placeBadge puts the mode badge top-left; on an output too narrow to share
+// the row with the header it moves below it.
+func (s *scene) placeBadge(mode ports.Mode, w, h float64) {
+	bw, bh := min(headerWidth(badgeText(mode)), w), min(headerH, h)
+	s.badge = frect{min(margin, max(w-bw, 0)), min(margin, max(h-bh, 0)), bw, bh}
+	if overlaps(s.badge, s.header) && s.header.y+s.header.h+tagPadY+bh <= h {
+		s.badge.y = s.header.y + s.header.h + tagPadY
+	}
+	s.clearLabelOfBadge(frect{}, h)
+}
+
+// clearLabelOfBadge moves a size label that meets the badge below it, inside
+// the highlighted rectangle fr when known.
+func (s *scene) clearLabelOfBadge(fr frect, h float64) {
+	if s.label.w > 0 && overlaps(s.label, s.badge) {
+		if y := max(fr.y+tagPadY, s.badge.y+s.badge.h+tagPadY); y+s.label.h <= h {
+			s.label.y = y
+		}
+	}
+}
+
+func overlaps(a, b frect) bool {
+	return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y
 }
 
 // footerHeight counts every explicit row separately, reserving conservative

@@ -13,3 +13,5 @@ box.tag {
   background-color: rgba(13, 16, 20, 0.92); color: #e6edf3;
   font-family: monospace; font-size: 1rem; text-align: center;
 }
+/* Recording mode badge: the HUD's red. */
+box.rec { background-color: #e5484d; color: #ffffff; }
