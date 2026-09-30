@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/bnema/nefercap/internal/ports"
 )
 
@@ -107,7 +109,7 @@ func TestStartValidation(t *testing.T) {
 func TestBuildArgs(t *testing.T) {
 	f := newFrame(63, 47, 252, 0)
 	args := strings.Join(buildArgs(f, 62, 46, 30), " ")
-	for _, want := range []string{"-pix_fmt bgr0", "-video_size 63x47", "-vf scale=62:46:", "-preset fast", "libx264", "-threads 2", "-filter_threads 1", "pipe:3", "-an"} {
+	for _, want := range []string{"-pix_fmt bgr0", "-video_size 63x47", "-vf scale=62:46:", "-preset veryfast", "-tune zerolatency", "libx264", "-threads 2", "-filter_threads 1", "pipe:3", "-an"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args missing %q: %s", want, args)
 		}
@@ -692,5 +694,81 @@ func TestWriteSteadyStateAllocations(t *testing.T) {
 	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteRowsShortWrite(t *testing.T) {
+	packed := newFrame(2, 2, 8, 1)
+	padded := newFrame(2, 2, 12, 1)
+	for name, tc := range map[string]struct {
+		f     ports.Frame
+		calls int
+	}{"packed": {packed, 1}, "rows": {padded, 1}} {
+		t.Run(name, func(t *testing.T) {
+			m := NewMockWriter(t)
+			m.EXPECT().Write(mock.Anything).Return(3, nil).Times(tc.calls)
+			if err := writeRows(m, tc.f); !errors.Is(err, io.ErrShortWrite) {
+				t.Fatalf("got %v, want io.ErrShortWrite", err)
+			}
+		})
+	}
+	t.Run("error passes through", func(t *testing.T) {
+		boom := errors.New("boom")
+		m := NewMockWriter(t)
+		m.EXPECT().Write(mock.Anything).Return(0, boom).Once()
+		if err := writeRows(m, padded); !errors.Is(err, boom) {
+			t.Fatalf("got %v", err)
+		}
+	})
+}
+
+func TestCloseReportsStreamFailureEvenIfEncoderExitsCleanly(t *testing.T) {
+	w := helperWriter(t, "drain")
+	w.closeTimeout = 10 * time.Second
+	path := filepath.Join(t.TempDir(), "v.mp4")
+	f := newFrame(4, 4, 16, 0)
+	ctx := context.Background()
+	if err := w.Start(ctx, f, path, settings()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	// Break the pipe under the writer: the encoder sees EOF and exits cleanly.
+	_ = w.stdin.Close()
+	werr := w.Write(ctx, f)
+	if werr == nil {
+		t.Fatal("Write to a broken pipe succeeded")
+	}
+	err := w.Close()
+	if err == nil || !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("Close = %v, want the stream failure", err)
+	}
+	if _, serr := os.Stat(path); !errors.Is(serr, os.ErrNotExist) {
+		t.Fatalf("broken recording remains: %v", serr)
+	}
+}
+
+func TestCloseKeepsVideoAfterCancelledWrite(t *testing.T) {
+	w := helperWriter(t, "drain")
+	w.closeTimeout = 10 * time.Second
+	path := filepath.Join(t.TempDir(), "v.mp4")
+	f := newFrame(4, 4, 16, 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := w.Start(ctx, f, path, settings()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := w.Write(ctx, f); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("cancellation must not fail Close: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "bytes=64" {
+		t.Fatalf("encoder output %q", got)
 	}
 }
