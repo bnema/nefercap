@@ -19,3 +19,12 @@ packages:
       ScreenshotWriter:
       VideoWriter:
       Selector:
+  io:
+    config:
+      dir: internal/adapters/ffmpeg
+      pkgname: ffmpeg
+      filename: io_mock_test.go
+    interfaces:
+      Writer:
+        config:
+          structname: MockIOWriter
