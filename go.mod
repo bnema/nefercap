@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/bnema/nefergui v0.2.0
-	github.com/bnema/purego-libwayland v0.7.0
+	github.com/bnema/purego-libwayland v0.8.0
 	github.com/bnema/wlturbo v0.3.0
 	github.com/bnema/zerowrap v1.4.1
 	github.com/stretchr/testify v1.12.1
