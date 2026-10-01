@@ -58,7 +58,7 @@ type PickResult struct {
 // Target converts the result to a capture target; selectors must use it
 // rather than map results themselves. A monitor is the zero region of its
 // output. A region carries its geometry. A workspace carries only its exact
-// native WorkspaceID: the compositor supplies live geometry at capture, so
+// Source-local WorkspaceID: the compositor supplies live geometry at capture, so
 // the Region snapshot in PickResult is for drawing only and is not cached in
 // the target. A workspace is never converted to a monitor. Sizes are logical:
 // the caller decides physical resolution and rounding.

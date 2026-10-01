@@ -27,13 +27,16 @@ const (
 // here is locked. The decision leaves through the shared session, never through
 // this struct.
 type model struct {
-	base    ports.Mode // mode the selector started in
-	mode    ports.Mode // current mode: base flipped by the session's Tab toggles
-	toggle  bool       // Tab switches shot <-> rec (all-in-one only)
-	seen    uint32     // session toggles already applied to mode
-	wake    chan struct{}
-	outputs []ports.Output
-	index   int // the output this overlay covers; every output has its own model
+	base   ports.Mode // mode the selector started in
+	mode   ports.Mode // current mode: base flipped by the session's Tab toggles
+	toggle bool       // Tab switches shot <-> rec (all-in-one only)
+	// noIndicator: the compositor cannot exclude a HUD from the video, so the
+	// record footer says there is none.
+	noIndicator bool
+	seen        uint32 // session toggles already applied to mode
+	wake        chan struct{}
+	outputs     []ports.Output
+	index       int // the output this overlay covers; every output has its own model
 
 	picker core.Picker
 	sized  bool
@@ -58,7 +61,7 @@ type model struct {
 }
 
 func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
-	return &model{base: mode, mode: mode, footerMode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false, false)}
+	return &model{base: mode, mode: mode, footerMode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false, false, false)}
 }
 
 // otherMode is the mode a Tab switches to.
@@ -276,7 +279,7 @@ func (m *model) refreshFooter() {
 	_, _, workspace := m.picker.Workspace()
 	if kind != m.footerKind || workspace != m.footerWorkspace || m.mode != m.footerMode {
 		m.footerKind, m.footerWorkspace, m.footerMode = kind, workspace, m.mode
-		m.footerText = footerText(m.mode, kind, workspace, m.toggle)
+		m.footerText = footerText(m.mode, kind, workspace, m.toggle, m.noIndicator)
 	}
 }
 

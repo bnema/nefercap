@@ -86,7 +86,7 @@ func (*Writer) Encode(ctx context.Context, w io.Writer, f ports.Frame) error {
 	return nil
 }
 
-// toRGBA converts top-to-bottom, honoring stride and YInvert, and forces alpha
+// toRGBA converts top-to-bottom, honoring stride, and forces alpha
 // to 255 because output is opaque (XRGB padding and ARGB alpha are ignored).
 func toRGBA(ctx context.Context, f ports.Frame) (*image.RGBA, error) {
 	rowLen := f.Width * ports.BytesPerPixel

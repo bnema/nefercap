@@ -21,14 +21,25 @@ type Region struct{ X, Y, Width, Height int }
 type Target struct {
 	OutputID uint32
 	Region   Region
-	// WorkspaceID is a stable compositor identity, never an index or monitor
-	// alias. Nonzero requires a native capture session and a zero Region:
-	// its geometry is supplied live by the compositor, not a cached crop.
+	// WorkspaceID is a Source-local identity from Source.Workspaces, never an
+	// index or monitor alias. Nonzero requires a zero Region. A workspace
+	// that is not displayed can be captured only if the compositor supports
+	// it; otherwise it is captured as its output while Active.
 	WorkspaceID uint64
 }
 
-// Workspace is native compositor target metadata. Region is output-local,
-// logical geometry. Active means that this workspace is currently displayed.
+// Capabilities says what the compositor behind a Source offers beyond
+// capturing whole outputs. It is fixed once the Source is created.
+type Capabilities struct {
+	// Workspaces: Source.Workspaces lists the compositor's workspaces.
+	Workspaces bool
+	// Exclusion: a client's own layer surfaces can be left out of its frames,
+	// so a recording indicator can be shown without appearing in the video.
+	Exclusion bool
+}
+
+// Workspace is compositor workspace metadata. Region is output-local, logical
+// geometry (the whole output). Active means this workspace is displayed.
 type Workspace struct {
 	ID       uint64
 	OutputID uint32
@@ -47,19 +58,21 @@ const (
 
 // Frame borrows storage from Source until the next Capture or Close call.
 // Consumers must finish reading synchronously and must not retain Pixels.
-// YInvert means the first stored row is the bottom row. Output is opaque SDR.
+// Output is opaque SDR.
 type Frame struct {
 	Pixels                []byte
 	Width, Height, Stride int
 	Format                PixelFormat
-	YInvert               bool
 }
 
 // Source has one sequential owner; cancellation must interrupt blocked I/O.
 // Cancellation errors wrap ctx.Err(), not a custom cancellation cause.
 // A failed Capture invalidates its borrowed frame. Close is idempotent.
 type Source interface {
+	Capabilities() Capabilities
 	Outputs(context.Context) ([]Output, error)
+	// Workspaces returns nil without error when the compositor has none.
+	Workspaces(context.Context) ([]Workspace, error)
 	Capture(context.Context, Target) (Frame, error)
 	Close() error
 }

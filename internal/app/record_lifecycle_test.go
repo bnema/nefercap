@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -51,19 +50,19 @@ func TestUserStopIsNotAFailure(t *testing.T) {
 
 func TestDetachAfterReadyKeepsRealError(t *testing.T) {
 	life, recordCtx, hudCtx, _ := newTestLifecycle(t)
-	detach := fmt.Errorf("compositor: %w", wayland.ErrSessionUnavailable)
+	detach := fmt.Errorf("compositor: %w", wayland.ErrExclusionUnavailable)
 	life.detached(detach)
 	if recordCtx.Err() == nil || hudCtx.Err() == nil {
 		t.Fatal("detach did not stop recording and HUD")
 	}
 	// The core observes only the cancellation the detach caused.
 	err := classify(ending{runErr: fmt.Errorf("capture first frame: %w", context.Canceled), failure: life.failed(), userStop: context.Cause(recordCtx) == errUserStop})
-	if !errors.Is(err, wayland.ErrSessionUnavailable) {
+	if !errors.Is(err, wayland.ErrExclusionUnavailable) {
 		t.Fatalf("detach error lost: %v", err)
 	}
 	// A second detach does not replace the first cause.
 	life.detached(errors.New("later"))
-	if cause := context.Cause(recordCtx); !errors.Is(cause, wayland.ErrSessionUnavailable) {
+	if cause := context.Cause(recordCtx); !errors.Is(cause, wayland.ErrExclusionUnavailable) {
 		t.Fatalf("first cause replaced: %v", cause)
 	}
 }
@@ -172,36 +171,23 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestSessionError(t *testing.T) {
+func TestExclusionError(t *testing.T) {
 	live := context.Background()
 	done, cancel := context.WithCancel(context.Background())
 	cancel()
-	for _, record := range []bool{true, false} {
-		if err := sessionError(done, record, fmt.Errorf("begin: %w", context.Canceled)); err != context.Canceled {
-			t.Fatalf("record=%t: cancellation not bare: %v", record, err)
-		}
-		real := errors.New("protocol failure")
-		if err := sessionError(done, record, errors.Join(context.Canceled, real)); !errors.Is(err, real) || err == context.Canceled {
-			t.Fatalf("record=%t: real failure masked by cancel: %v", record, err)
-		}
-		// A cancel error while the caller is live is not the caller's cancel.
-		if err := sessionError(live, record, context.Canceled); err == context.Canceled {
-			t.Fatalf("record=%t: foreign cancel treated as caller's", record)
-		}
-		generic := errors.New("protocol failure")
-		if err := sessionError(live, record, generic); !errors.Is(err, generic) || err == generic {
-			t.Fatalf("record=%t: phase missing: %v", record, err)
-		}
-		if err := sessionError(live, record, wayland.ErrWorkspaceNotFound); !errors.Is(err, wayland.ErrWorkspaceNotFound) || errors.Is(err, wayland.ErrSessionUnsupported) {
-			t.Fatalf("record=%t: workspace error mislabeled: %v", record, err)
-		}
+	if err := exclusionError(done, fmt.Errorf("begin: %w", context.Canceled)); err != context.Canceled {
+		t.Fatalf("cancellation not bare: %v", err)
 	}
-	recorded := sessionError(live, true, wayland.ErrSessionUnsupported)
-	if !errors.Is(recorded, wayland.ErrSessionUnsupported) || !strings.Contains(recorded.Error(), "recording indicator") {
-		t.Fatalf("recording unsupported not explained: %v", recorded)
+	real := errors.New("protocol failure")
+	if err := exclusionError(done, errors.Join(context.Canceled, real)); !errors.Is(err, real) || err == context.Canceled {
+		t.Fatalf("real failure masked by cancel: %v", err)
 	}
-	if shot := sessionError(live, false, wayland.ErrSessionUnsupported); strings.Contains(shot.Error(), "recording indicator") {
-		t.Fatalf("screenshot got recording text: %v", shot)
+	// A cancel error while the caller is live is not the caller's cancel.
+	if err := exclusionError(live, context.Canceled); err == context.Canceled {
+		t.Fatal("foreign cancel treated as caller's")
+	}
+	if err := exclusionError(live, real); !errors.Is(err, real) || err == real {
+		t.Fatalf("phase missing: %v", err)
 	}
 }
 

@@ -234,11 +234,6 @@ func TestDrainLifecycle(t *testing.T) {
 	if err := w.Write(ctx, newFrame(4, 4, 32, 2)); err != nil {
 		t.Fatalf("stride change rejected: %v", err)
 	}
-	inv := newFrame(4, 4, 16, 3)
-	inv.YInvert = true
-	if err := w.Write(ctx, inv); err != nil {
-		t.Fatal(err)
-	}
 	for _, bad := range []ports.Frame{newFrame(8, 4, 32, 0), newFrame(4, 8, 16, 0)} {
 		if err := w.Write(ctx, bad); !errors.Is(err, ports.ErrGeometryChanged) {
 			t.Fatalf("got %v, want ErrGeometryChanged", err)
@@ -272,8 +267,8 @@ func TestDrainLifecycle(t *testing.T) {
 	if !gone(pid) {
 		t.Fatal("encoder not reaped")
 	}
-	// 4 frames of 4x4x4 bytes reached the encoder exactly (no padding).
-	if got, _ := os.ReadFile(path); string(got) != "bytes=256" {
+	// 3 frames of 4x4x4 bytes reached the encoder exactly (no padding).
+	if got, _ := os.ReadFile(path); string(got) != "bytes=192" {
 		t.Fatalf("encoder output %q", got)
 	}
 }
@@ -722,13 +717,12 @@ func TestRealFFmpeg(t *testing.T) {
 		w, h, stride  int
 		set           ports.VideoSettings
 		wantW, wantH  int
-		invert        bool
 		cancelInstead bool
 	}{
-		{"retain padded inverted", 64, 48, 64*4 + 16, ports.VideoSettings{FPS: 30}, 64, 48, true, false},
-		{"odd source scaled", 63, 47, 63 * 4, ports.VideoSettings{FPS: 30, Width: 62, Height: 46}, 62, 46, false, false},
-		{"scaled", 64, 48, 64 * 4, ports.VideoSettings{FPS: 60, Width: 32, Height: 24}, 32, 24, false, false},
-		{"graceful cancel keeps video", 64, 48, 64 * 4, ports.VideoSettings{FPS: 30}, 64, 48, false, true},
+		{"retain padded", 64, 48, 64*4 + 16, ports.VideoSettings{FPS: 30}, 64, 48, false},
+		{"odd source scaled", 63, 47, 63 * 4, ports.VideoSettings{FPS: 30, Width: 62, Height: 46}, 62, 46, false},
+		{"scaled", 64, 48, 64 * 4, ports.VideoSettings{FPS: 60, Width: 32, Height: 24}, 32, 24, false},
+		{"graceful cancel keeps video", 64, 48, 64 * 4, ports.VideoSettings{FPS: 30}, 64, 48, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := New()
@@ -736,7 +730,6 @@ func TestRealFFmpeg(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			f := newFrame(tc.w, tc.h, tc.stride, 0)
-			f.YInvert = tc.invert
 			if err := w.Start(ctx, f, path, tc.set); err != nil {
 				t.Fatal(err)
 			}
@@ -793,13 +786,9 @@ func TestRealFFmpegRefusesExistingPath(t *testing.T) {
 
 func TestVideoRowsAllocations(t *testing.T) {
 	cases := map[string]ports.Frame{
-		"packed":   newFrame(64, 32, 256, 1),
-		"padded":   newFrame(64, 32, 320, 1),
-		"inverted": newFrame(64, 32, 320, 1),
+		"packed": newFrame(64, 32, 256, 1),
+		"padded": newFrame(64, 32, 320, 1),
 	}
-	inv := cases["inverted"]
-	inv.YInvert = true
-	cases["inverted"] = inv
 	for name, f := range cases {
 		t.Run(name, func(t *testing.T) {
 			if err := f.Validate(); err != nil {
@@ -827,12 +816,12 @@ func TestVideoRowsAllocations(t *testing.T) {
 }
 
 func TestWriteRowsLayout(t *testing.T) {
-	// 2x2, stride 12, stored bottom row first.
+	// 2x2, stride 12: the padding is left out.
 	pix := []byte{
-		5, 5, 5, 5, 6, 6, 6, 6, 9, 9, 9, 9,
 		1, 1, 1, 1, 2, 2, 2, 2, 9, 9, 9, 9,
+		5, 5, 5, 5, 6, 6, 6, 6, 9, 9, 9, 9,
 	}
-	f := ports.Frame{Pixels: pix, Width: 2, Height: 2, Stride: 12, Format: ports.XRGB8888, YInvert: true}
+	f := ports.Frame{Pixels: pix, Width: 2, Height: 2, Stride: 12, Format: ports.XRGB8888}
 	var buf bytes.Buffer
 	if err := writeRows(&buf, f); err != nil {
 		t.Fatal(err)
@@ -857,13 +846,11 @@ func TestStderrBounded(t *testing.T) {
 
 func BenchmarkVideoRows(b *testing.B) {
 	for _, size := range []struct {
-		name   string
-		w, h   int
-		invert bool
-	}{{"1080p", 1920, 1080, false}, {"1080p-inverted", 1920, 1080, true}, {"4K", 3840, 2160, false}, {"4K-inverted", 3840, 2160, true}} {
+		name string
+		w, h int
+	}{{"1080p", 1920, 1080}, {"4K", 3840, 2160}} {
 		b.Run(size.name, func(b *testing.B) {
 			f := newFrame(size.w, size.h, size.w*4, 1)
-			f.YInvert = size.invert
 			b.SetBytes(int64(size.w * size.h * 4))
 			b.ReportAllocs()
 			for b.Loop() {

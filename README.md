@@ -10,7 +10,7 @@
 <p align="center">Screenshots and silent screen recording for Wayland, from one shortcut.</p>
 
 > [!WARNING]
-> **Early alpha.** Built for [NeferWL](https://github.com/bnema/neferwl). Other compositors can take screenshots but cannot record. Expect bugs and breaking config changes.
+> **Early alpha.** Built for [NeferWL](https://github.com/bnema/neferwl), and works on other compositors with the standard capture protocols (see [Compatibility](#compatibility)). Expect bugs and breaking config changes.
 
 ---
 
@@ -24,7 +24,7 @@ bind.cmd+p = spawn nefercap
 
 Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm. A badge at the top left shows the mode: `SHOT` or `REC`.
 
-While recording, a red border marks the target and a small **REC / Stop** HUD shows the time. Neither appears in the video. Press the key again, or click Stop, to finish the file.
+While recording on NeferWL, a border marks the target and a small **REC / Stop** HUD shows the time. Neither appears in the video. Press the key again, or click Stop, to finish the file. Other compositors show no indicator: the selector says so, and the same key (or `nefercap stop`) finishes the file.
 
 | Input | Action |
 | --- | --- |
@@ -38,12 +38,12 @@ While recording, a red border marks the target and a small **REC / Stop** HUD sh
 | `Tab` | Switch shot ⇄ rec |
 | `Esc` | Cancel |
 
-A workspace recording follows that workspace, even when you switch to another one. A monitor recording follows whatever the monitor shows.
+On NeferWL a workspace recording follows that workspace, even when you switch to another one. Elsewhere `W` offers only the workspace currently shown, and records the monitor. A monitor recording follows whatever the monitor shows.
 
 ## Features
 
 - **One shortcut.** Screenshot and recording share one selector; the same key stops a recording.
-- **Clean video.** The compositor keeps the border and HUD out of the recording.
+- **Clean video.** With NeferWL the compositor keeps the border and HUD out of the recording.
 - **Clipboard.** Screenshots can be saved, copied, or both.
 - **Small footprint.** One capture in flight, reused buffers, no redraw while idle. Allocation tests guard the hot paths.
 - **Scriptable.** `nefercap screenshot` and `nefercap record` run without the selector.
@@ -92,13 +92,27 @@ nefercap record -output DP-1 -fps 30 -duration 10s -file clip.mp4
 ## Requirements
 
 - Go 1.27 to build.
-- A Wayland compositor with `zwlr_layer_shell_v1` v4 and `zwlr_screencopy_manager_v1`.
+- A Wayland compositor with `ext_image_copy_capture_manager_v1`, `ext_output_image_capture_source_manager_v1` and `zwlr_layer_shell_v1` v4.
 - Vulkan, libxkbcommon, linux-dmabuf and linux-drm-syncobj for the selector.
-- NeferWL's capture-session protocol to record.
 - FFmpeg with `libx264` to record.
 - `wl-copy` (wl-clipboard) for clipboard screenshots.
 
-Output is SDR, and video is silent H.264 in fragmented MP4. Audio, pause and cursor capture are not supported.
+NeferWL's optional capture extension adds workspace and region sources and keeps the HUD out of the video. Without it nefercap uses only the standard protocols.
+
+## Compatibility
+
+| Compositor | Screenshots, recording (outputs, regions) | Workspaces | Hidden workspace | Recording indicator |
+| --- | --- | --- | --- | --- |
+| NeferWL | yes | yes | yes | yes, imposed by the compositor |
+| sway, river (wlroots ≥ 0.19), Hyprland, niri, COSMIC | assumed | assumed, where `ext-workspace-v1` exists: active only | no | no |
+| KDE Plasma | assumed | no | no | no |
+| GNOME | unsupported | no | no | no |
+
+Workspaces need `ext-workspace-v1`; with NeferWL's extension the selector outlines the workspace frame (a workspace smaller than its monitor), and the HUD sits in it. Without the extension `W` outlines the whole monitor and captures the workspace currently shown, as its monitor. Without the extension a region is cropped from the monitor frame. *Assumed* means it follows from the protocols the compositor advertises; only NeferWL is tested.
+
+A compositor may refuse a capture client; the capture then ends with an error.
+
+Output is SDR, and video is silent H.264 in fragmented MP4. Audio, pause and cursor capture are not supported. Rotated outputs (any non-normal output transform) are not supported: the capture fails with an error naming the transform.
 
 ## Install
 
@@ -106,7 +120,7 @@ Output is SDR, and video is silent H.264 in fragmented MP4. Audio, pause and cur
 make bin    # builds bin/nefercap
 ```
 
-Copy `bin/nefercap` to a directory on your `PATH`.
+Install it as `/usr/bin/nefercap`: NeferWL allows that path to capture by default. Elsewhere (for example `~/.local/bin`, or `go run`), NeferWL refuses capture until root lists the path in `/etc/neferwl/capture-allow`.
 
 ## Development
 

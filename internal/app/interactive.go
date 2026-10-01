@@ -15,8 +15,8 @@ import (
 	"github.com/bnema/nefercap/internal/ports"
 )
 
-// chooseInteractive uses native workspace metadata only when the compositor
-// exposes it. Monitor and region screenshots still work with standard capture.
+// chooseInteractive offers workspaces only when the compositor lists them.
+// Monitor and region captures work with the standard protocols.
 func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []ports.Output, options cli.Options, settings config.Settings) (ports.Selection, bool, error) {
 	mode := ports.Screenshot
 	if options.Command == cli.Rec {
@@ -30,7 +30,7 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 		outputs = []ports.Output{chosen}
 	}
 	workspaces, err := source.Workspaces(ctx)
-	if err != nil && !errors.Is(err, wayland.ErrSessionUnsupported) {
+	if err != nil {
 		if ctx.Err() != nil && uierrors.IsCancellation(err) {
 			return ports.Selection{}, false, ctx.Err()
 		}
@@ -39,7 +39,7 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 	if err := checkDirs(options, settings); err != nil {
 		return ports.Selection{}, false, err
 	}
-	selector := selection.New(mode, options.Video, workspaces, settings.Grid)
+	selector := selection.New(mode, options.Video, workspaces, settings.Grid).WithCapabilities(source.Capabilities())
 	if options.Command == cli.AllInOne {
 		selector.AllowToggle()
 	}
@@ -103,9 +103,8 @@ func rejectCompetingSelector(ctx context.Context) error {
 		return err
 	}
 	if active {
-		// A selector on another capture connection is not automatically part
-		// of the recording's excluded set. Refuse rather than leak it into
-		// an existing recording until cross-session selection is authorized.
+		// A selector on another capture connection is not part of the
+		// recording's excluded set: it would show up in the video.
 		return errors.New("recording is active; stop it before opening a capture selector")
 	}
 	return nil

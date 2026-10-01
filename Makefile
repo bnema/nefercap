@@ -10,12 +10,12 @@ bin:
 build:
 	CGO_ENABLED=0 go build ./...
 test:
-	CGO_ENABLED=0 go test ./...
+	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=0 go test ./...
 vet:
 	CGO_ENABLED=0 go vet ./...
 race:
 	# cgo is enabled only for the race test binary.
-	CGO_ENABLED=1 go test -race ./...
+	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=1 go test -race ./...
 # go.mod and go.sum must be tidy (prints the diff and fails otherwise).
 mod-check:
 	go mod tidy -diff
@@ -45,7 +45,7 @@ arch:
 # Steady-state allocation guards. PERF_TESTS lists exact test names and PERF_PKGS
 # the packages holding them. Every named test must exist, so the guard cannot
 # pass vacuously when a frame-path test is removed or renamed.
-PERF_TESTS := TestFrameAllocations TestSelectionAllocations TestPickerAllocations TestMonitorGridAllocations TestMonitorGridPhysicalAllocations TestGridAllocations TestGridModeAllocations TestSelectorAllocations TestModeToggleAllocations TestRefreshAllocations TestVideoRowsAllocations TestWriteSteadyStateAllocations TestResolveOutputAllocations TestCaptureAllocations
+PERF_TESTS := TestFrameAllocations TestSelectionAllocations TestPickerAllocations TestMonitorGridAllocations TestMonitorGridPhysicalAllocations TestGridAllocations TestGridModeAllocations TestSelectorAllocations TestModeToggleAllocations TestRefreshAllocations TestVideoRowsAllocations TestWriteSteadyStateAllocations TestResolveOutputAllocations TestCaptureAllocations TestCaptureAllocationsCancellable TestCropAllocations
 PERF_PKGS := ./internal/ports ./internal/core ./internal/adapters/selection ./internal/adapters/indicator ./internal/adapters/ffmpeg ./internal/app ./internal/adapters/wayland
 perf_empty :=
 perf_space := $(perf_empty) $(perf_empty)
@@ -55,5 +55,5 @@ perf-check:
 	for t in $(PERF_TESTS); do \
 		printf '%s\n' "$$out" | grep -qx "$$t" || { echo "perf-check: test $$t not found in $(PERF_PKGS)" >&2; exit 1; }; \
 	done
-	CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_RE)' -count=1
+	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_RE)' -count=1
 check: mod-check vet test arch fakes-check perf-check

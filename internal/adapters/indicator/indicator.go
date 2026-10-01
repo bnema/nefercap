@@ -1,10 +1,11 @@
 // Package indicator is the recording HUD: a small layer surface at the top
-// centre of the recorded output showing a REC timer and a Stop button.
+// centre of the recorded output (of the workspace frame, when it is smaller)
+// showing a REC timer and a Stop button.
 //
 // It is one thin surface, not a full-output overlay: it takes no keyboard
 // focus, and only the Stop button receives pointer input; the rest of the HUD
-// and everything around it pass clicks through. The red border around the
-// recorded area is not drawn here; the compositor owns it.
+// and everything around it pass clicks through. The border around the
+// recorded area is not drawn here: the compositor marks it.
 //
 // Capture exclusion is explicit authorization, not a property of how the HUD is
 // built. The caller supplies authorize, which NeferGUI calls with the surface
@@ -58,6 +59,11 @@ type Indicator struct {
 	// name). It is shown after the timer, cut to 12 characters, and only as
 	// text: the HUD never draws geometry for it. Set it before Run.
 	TargetLabel string
+	// Frame optionally is the part of the output that is recorded, in
+	// output-local logical pixels (a workspace smaller than its output): the
+	// HUD sits at the top centre of it. The zero value is the whole output.
+	// Set it before Run.
+	Frame ports.Region
 
 	authorize func(context.Context, nefergui.WaylandSurface) error
 	stop      chan<- struct{}
@@ -114,7 +120,7 @@ func (i *Indicator) run(ctx context.Context, output ports.Output, start time.Tim
 		nefergui.Size(Width, Height),
 		nefergui.Styles(sheet),
 		nefergui.Transparent(),
-		nefergui.Layer(layerConfig(output.Name)),
+		nefergui.Layer(layerConfig(output.Name, i.Frame)),
 		nefergui.OnSurface(i.authorize),
 		nefergui.Wake(wake),
 	)
@@ -127,9 +133,11 @@ func (i *Indicator) run(ctx context.Context, output ports.Output, start time.Tim
 }
 
 // layerConfig is a top-centre HUD that never takes keyboard focus and accepts
-// pointer input only inside the Stop button.
-func layerConfig(output string) nefergui.LayerConfig {
-	return nefergui.LayerConfig{
+// pointer input only inside the Stop button. Centre is that of the output, or
+// of frame when it is set: then the HUD is anchored to the top left of the
+// output and moved by margins.
+func layerConfig(output string, frame ports.Region) nefergui.LayerConfig {
+	c := nefergui.LayerConfig{
 		Output:        output,
 		Namespace:     namespace,
 		Level:         nefergui.LayerOverlay,
@@ -139,6 +147,11 @@ func layerConfig(output string) nefergui.LayerConfig {
 		Margin:        [4]int32{topMargin, 0, 0, 0},
 		InputRects:    []nefergui.Rect{stopRect()},
 	}
+	if frame.Width > 0 && frame.Height > 0 {
+		c.Anchors = nefergui.AnchorTop | nefergui.AnchorLeft
+		c.Margin = [4]int32{int32(frame.Y) + topMargin, 0, 0, int32(frame.X + max((frame.Width-Width)/2, 0))}
+	}
+	return c
 }
 
 func stopRect() nefergui.Rect {

@@ -122,7 +122,7 @@ func TestRequestStopNeverBlocks(t *testing.T) {
 }
 
 func TestLayerConfigTakesNoFocusAndOnlyStopInput(t *testing.T) {
-	c := layerConfig("DP-1")
+	c := layerConfig("DP-1", ports.Region{})
 	assert.Equal(t, nefergui.KeyboardNone, c.Keyboard)
 	assert.Equal(t, nefergui.LayerOverlay, c.Level)
 	assert.Equal(t, nefergui.AnchorTop, c.Anchors)
@@ -131,6 +131,20 @@ func TestLayerConfigTakesNoFocusAndOnlyStopInput(t *testing.T) {
 	r := c.InputRects[0]
 	assert.Equal(t, nefergui.Rect{X: Width - stopWidth, Width: stopWidth, Height: Height}, r)
 	assert.LessOrEqual(t, r.X+r.Width, int32(Width))
+}
+
+func TestLayerConfigCentresOnTheRecordedFrame(t *testing.T) {
+	c := layerConfig("DP-1", ports.Region{X: 100, Y: 50, Width: 1000, Height: 600})
+	assert.Equal(t, nefergui.AnchorTop|nefergui.AnchorLeft, c.Anchors)
+	assert.Equal(t, [4]int32{50 + topMargin, 0, 0, 100 + (1000-Width)/2}, c.Margin)
+	assert.Equal(t, nefergui.KeyboardNone, c.Keyboard)
+	// A frame narrower than the HUD starts at its left edge.
+	c = layerConfig("DP-1", ports.Region{X: 7, Width: 100, Height: 100})
+	assert.Equal(t, int32(7), c.Margin[3])
+	// No frame: the whole output, centred by the compositor.
+	c = layerConfig("DP-1", ports.Region{})
+	assert.Equal(t, nefergui.AnchorTop, c.Anchors)
+	assert.Equal(t, [4]int32{topMargin, 0, 0, 0}, c.Margin)
 }
 
 func TestHUDReadabilityAndStopGeometry(t *testing.T) {

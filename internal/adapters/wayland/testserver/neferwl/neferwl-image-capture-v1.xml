@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="neferwl_image_capture_v1">
+  <copyright>
+    neferwl private protocol. No stability promise beyond the version of the
+    interface.
+  </copyright>
+
+  <description summary="neferwl additions to ext-image-copy-capture">
+    Optional additions to ext-image-capture-source-v1, ext-workspace-v1 and
+    ext-image-copy-capture-v1 for what those protocols do not cover:
+    workspace and output-region capture sources, the frame of a workspace,
+    and leaving a client's own surfaces (a recording HUD) out of its
+    captures.
+
+    Capture always goes through ext-image-copy-capture. The compositor applies
+    the same rules to every capture, whatever its source: it may refuse a
+    client (ext_image_copy_capture_session_v1.stopped), and it draws its own
+    capture indicator on screen, never in a captured image, which no client
+    can turn off.
+  </description>
+
+  <interface name="neferwl_image_capture_source_manager_v1" version="1">
+    <description summary="workspace and output-region capture sources">
+      Global. Sources created here are ext_image_capture_source_v1 objects,
+      used with ext_image_copy_capture_manager_v1.create_session like any
+      other source.
+    </description>
+
+    <enum name="error">
+      <entry name="invalid_region" value="0" summary="width or height is not positive"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Sources created through it stay valid.
+      </description>
+    </request>
+
+    <request name="create_workspace_source">
+      <description summary="capture a workspace">
+        The source is the workspace frame, without bars, whether or not the
+        workspace is on screen: a workspace that is not on screen is rendered
+        for capture only. Its buffer size follows the workspace frame. A
+        session on it is stopped when the workspace is removed. A handle
+        already removed gives a source whose sessions stop at once.
+      </description>
+      <arg name="source" type="new_id" interface="ext_image_capture_source_v1"/>
+      <arg name="workspace" type="object" interface="ext_workspace_handle_v1"/>
+    </request>
+
+    <request name="create_output_region_source">
+      <description summary="capture a rectangle of an output">
+        The rectangle is in output-local logical pixels and is clipped to the
+        output. The buffer covers only that rectangle, in physical pixels. A
+        session on it is stopped when the output goes away or when nothing of
+        the rectangle is left on the output.
+      </description>
+      <arg name="source" type="new_id" interface="ext_image_capture_source_v1"/>
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+
+    <request name="get_workspace_frame">
+      <description summary="learn the frame of a workspace">
+        ext-workspace-v1 carries no geometry. The frame object reports the
+        rectangle that a workspace source of the same handle captures. For a
+        handle already removed, the object never sends frame.
+      </description>
+      <arg name="id" type="new_id" interface="neferwl_workspace_frame_v1"/>
+      <arg name="workspace" type="object" interface="ext_workspace_handle_v1"/>
+    </request>
+  </interface>
+
+  <interface name="neferwl_workspace_frame_v1" version="1">
+    <description summary="the frame of one workspace">
+      The frame is the area of its output that the workspace draws in,
+      without bars: the whole output, or the smaller size set for the
+      workspace.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the frame object"/>
+    </request>
+
+    <event name="frame">
+      <description summary="the workspace frame">
+        The frame in output-local logical pixels. Sent when the object is
+        created and again whenever the frame changes. Not sent once the
+        workspace is removed.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+  </interface>
+
+  <interface name="neferwl_capture_exclusion_manager_v1" version="1">
+    <description summary="leave a client's own surfaces out of its captures">
+      Global. A recorder asks for an exclusion on its capture session and
+      gets a token; its HUD, usually on another connection of the same user,
+      attaches layer surfaces with that token. Frames of that session leave
+      the attached surfaces out. Every other capture shows them.
+    </description>
+
+    <enum name="error">
+      <entry name="surface_role" value="0" summary="the surface is not a wlr-layer-shell surface"/>
+      <entry name="invalid_layer" value="1" summary="the layer is neither top nor overlay"/>
+      <entry name="exclusive_keyboard" value="2" summary="the layer takes the keyboard exclusively"/>
+      <entry name="invalid_surface" value="3" summary="the surface is already mapped"/>
+      <entry name="already_excluded" value="4" summary="the capture session already has an exclusion"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Exclusions and attachments created through it stay alive.
+      </description>
+    </request>
+
+    <request name="get_exclusion">
+      <description summary="create the exclusion of a capture session">
+        The exclusion answers with exactly one of token or failed. It ends
+        with the capture session.
+      </description>
+      <arg name="id" type="new_id" interface="neferwl_capture_exclusion_v1"/>
+      <arg name="session" type="object" interface="ext_image_copy_capture_session_v1"/>
+    </request>
+
+    <request name="attach_surface">
+      <description summary="attach a layer surface to an exclusion by token">
+        Marks a layer surface of this client as excluded from the frames of
+        the session that owns the token. The client must have the same user
+        ID as the compositor and must also be allowed to capture: its
+        executable is on the capture allowlist (or the allowlist is off), it
+        is not sandboxed, and the session is not locked. The surface must already have the
+        wlr-layer-shell role, on the top or overlay layer, must not have
+        mapped yet and must not ask for exclusive keyboard interactivity. At
+        most 4 layers per exclusion. An attached layer never gets keyboard
+        interactivity; if it moves to another layer the compositor closes it
+        and sends detached.
+
+        The attachment answers with exactly one of attached or failed. The
+        surface is excluded from this request on, before it can map; the
+        client must not show it before attached.
+      </description>
+      <arg name="id" type="new_id" interface="neferwl_capture_layer_v1"/>
+      <arg name="token" type="string"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+  </interface>
+
+  <interface name="neferwl_capture_exclusion_v1" version="1">
+    <description summary="the exclusion of one capture session">
+      Destroying it detaches every attached layer.
+    </description>
+
+    <enum name="failure">
+      <entry name="busy" value="0" summary="another exclusion is live in the compositor"/>
+      <entry name="session_stopped" value="1" summary="the capture session is stopped"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the exclusion"/>
+    </request>
+
+    <event name="token">
+      <description summary="the attachment token">
+        64 lowercase hexadecimal characters (32 random bytes). A secret for
+        the owner and its HUD, never logged, valid until the exclusion ends.
+      </description>
+      <arg name="token" type="string"/>
+    </event>
+
+    <event name="failed">
+      <description summary="no exclusion">
+        Final. Destroy the object.
+      </description>
+      <arg name="reason" type="uint" enum="failure"/>
+    </event>
+  </interface>
+
+  <interface name="neferwl_capture_layer_v1" version="1">
+    <description summary="a layer surface attached to an exclusion">
+      Created by attach_surface. Exactly one of attached or failed comes
+      first; detached comes at most once, after attached.
+    </description>
+
+    <enum name="failure">
+      <entry name="unknown_token" value="0" summary="no live exclusion has this token"/>
+      <entry name="unauthorized" value="1" summary="peer credentials differ from the compositor user's or are unreadable, or the client may not capture (not on the allowlist, sandboxed, or session locked)"/>
+      <entry name="too_many_layers" value="2" summary="the exclusion already has 4 attached layers"/>
+      <entry name="already_attached" value="3" summary="the surface is already attached"/>
+      <entry name="exclusion_ended" value="4" summary="the exclusion ended before the compositor confirmed the layer"/>
+      <entry name="layer_destroyed" value="5" summary="the layer role was destroyed before the compositor confirmed it"/>
+    </enum>
+
+    <enum name="detach_reason">
+      <entry name="exclusion_ended" value="0" summary="the exclusion ended; the compositor closed the layer surface"/>
+      <entry name="layer_destroyed" value="1" summary="the layer role was destroyed"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the attachment object">
+        The surface stays excluded until its layer role is destroyed or the
+        exclusion ends.
+      </description>
+    </request>
+
+    <event name="attached">
+      <description summary="the layer is excluded">
+        The compositor confirmed the attachment. Safe to show.
+      </description>
+    </event>
+
+    <event name="failed">
+      <description summary="the attachment was refused"/>
+      <arg name="reason" type="uint" enum="failure"/>
+    </event>
+
+    <event name="detached">
+      <description summary="the layer left the exclusion">
+        Sent once after attached. When the exclusion ended, the compositor
+        also closed the layer surface (zwlr_layer_surface_v1.closed).
+      </description>
+      <arg name="reason" type="uint" enum="detach_reason"/>
+    </event>
+  </interface>
+</protocol>
