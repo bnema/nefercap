@@ -1,4 +1,4 @@
-.PHONY: bin build test vet race fmt-check mod-check mocks mocks-check fakes-check arch perf-check check
+.PHONY: bin build test vet race fmt-check mod-check mocks mocks-check fakes-check arch perf-check check pkg install
 
 GOBIN_DIR := $(or $(shell go env GOBIN),$(firstword $(subst :, ,$(shell go env GOPATH)))/bin)
 MOCKERY ?= $(GOBIN_DIR)/mockery
@@ -60,3 +60,23 @@ perf-check:
 	done
 	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_RE)' -count=1
 check: fmt-check mod-check vet test arch fakes-check perf-check
+
+# Arch package of the committed HEAD (packaging/arch/PKGBUILD). Go modules
+# come from the module proxy in prepare(); the build itself runs offline.
+# pacman-ordered version: 0.0.0.r<commits>.g<hash>; a tag replaces 0.0.0.
+pkg: SHELL := bash
+pkg: .SHELLFLAGS := -eo pipefail -c
+pkg:
+	@test -z "$$(git status --porcelain)" || echo "warning: uncommitted changes are not packaged" >&2
+	v=$$(t=$$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//; s/-/_/g'); \
+		echo "$${t:-0.0.0}.r$$(git rev-list --count HEAD).g$$(git rev-parse --short HEAD)"); \
+	d=$$(mktemp -d /tmp/nefercap-pkg.XXXXXX); trap 'rm -rf "$$d"' EXIT; \
+	git archive --prefix=nefercap-$$v/ -o "$$d/nefercap-$$v.tar.gz" HEAD; \
+	cp packaging/arch/PKGBUILD "$$d/"; \
+	cd "$$d" && sed -i "s/^pkgver=.*/pkgver=$$v/; s/^sha256sums=.*/sha256sums=('$$(sha256sum *.tar.gz | cut -d' ' -f1)')/" PKGBUILD; \
+	makepkg -f --noconfirm; mkdir -p $(CURDIR)/dist; rm -f $(CURDIR)/dist/nefercap-*.pkg.tar.zst; mv *.pkg.tar.zst $(CURDIR)/dist/
+	@ls dist/*.pkg.tar.zst
+
+# Build the package, then install it with pacman (asks for sudo).
+install: pkg
+	sudo pacman -U dist/nefercap-*.pkg.tar.zst

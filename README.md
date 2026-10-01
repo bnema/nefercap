@@ -117,11 +117,21 @@ Output is SDR, and video is silent H.264 in fragmented MP4. Audio, pause and cur
 
 ## Install
 
+On Arch Linux, install from the AUR:
+
 ```sh
-make bin    # builds bin/nefercap
+paru -S nefercap-bin   # latest release, pre-built
+paru -S nefercap-git   # latest main, built from source
 ```
 
-Install it as `/usr/bin/nefercap`: NeferWL allows that path to capture by default. Elsewhere (for example `~/.local/bin`, or `go run`), NeferWL refuses capture until root lists the path in `/etc/neferwl/capture-allow`.
+Pre-built archives are on the [releases page](https://github.com/bnema/nefercap/releases). To build from a checkout:
+
+```sh
+make bin    # builds bin/nefercap
+make pkg    # builds an Arch package of HEAD into dist/
+```
+
+The packages install `/usr/bin/nefercap`: NeferWL allows that path to capture by default. Elsewhere (for example `~/.local/bin`, or `go run`), NeferWL refuses capture until root lists the path in `/etc/neferwl/capture-allow`.
 
 ## Development
 
