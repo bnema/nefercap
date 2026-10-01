@@ -67,7 +67,8 @@
       <description summary="learn the frame of a workspace">
         ext-workspace-v1 carries no geometry. The frame object reports the
         rectangle that a workspace source of the same handle captures. For a
-        handle already removed, the object never sends frame.
+        handle already removed, the object never sends frame. It needs no
+        capture authorization: the frame is layout information, not pixels.
       </description>
       <arg name="id" type="new_id" interface="neferwl_workspace_frame_v1"/>
       <arg name="workspace" type="object" interface="ext_workspace_handle_v1"/>
@@ -89,7 +90,8 @@
       <description summary="the workspace frame">
         The frame in output-local logical pixels. Sent when the object is
         created and again whenever the frame changes. Not sent once the
-        workspace is removed.
+        workspace is removed. Not sent while the session is locked; the
+        current frame is sent after unlock if it changed.
       </description>
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>

@@ -108,7 +108,7 @@ NeferWL's optional capture extension adds workspace and region sources and keeps
 | KDE Plasma | assumed | no | no | no |
 | GNOME | unsupported | no | no | no |
 
-Workspaces need `ext-workspace-v1`; with NeferWL's extension the selector outlines the workspace frame (a workspace smaller than its monitor), and the HUD sits in it. Without the extension `W` outlines the whole monitor and captures the workspace currently shown, as its monitor. Without the extension a region is cropped from the monitor frame. *Assumed* means it follows from the protocols the compositor advertises; only NeferWL is tested.
+Workspaces need `ext-workspace-v1`; with NeferWL's extension the selector outlines the workspace frame (a workspace smaller than its monitor), and the HUD sits in it (placed when the recording starts: if the workspace frame changes during the recording, the video follows it and the HUD stays in place). Without the extension `W` outlines the whole monitor and captures the workspace currently shown, as its monitor. Without the extension a region is cropped from the monitor frame. *Assumed* means it follows from the protocols the compositor advertises; only NeferWL is tested.
 
 A compositor may refuse a capture client; the capture then ends with an error.
 

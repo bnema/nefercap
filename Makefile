@@ -1,4 +1,4 @@
-.PHONY: bin build test vet race mod-check mocks mocks-check fakes-check arch perf-check check
+.PHONY: bin build test vet race fmt-check mod-check mocks mocks-check fakes-check arch perf-check check
 
 GOBIN_DIR := $(or $(shell go env GOBIN),$(firstword $(subst :, ,$(shell go env GOPATH)))/bin)
 MOCKERY ?= $(GOBIN_DIR)/mockery
@@ -16,6 +16,9 @@ vet:
 race:
 	# cgo is enabled only for the race test binary.
 	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=1 go test -race ./...
+# Go sources must be gofmt-clean (lists the offending files and fails otherwise).
+fmt-check:
+	test -z "$$(gofmt -l ./internal ./cmd)" || { gofmt -l ./internal ./cmd >&2; exit 1; }
 # go.mod and go.sum must be tidy (prints the diff and fails otherwise).
 mod-check:
 	go mod tidy -diff
@@ -56,4 +59,4 @@ perf-check:
 		printf '%s\n' "$$out" | grep -qx "$$t" || { echo "perf-check: test $$t not found in $(PERF_PKGS)" >&2; exit 1; }; \
 	done
 	NEFERCAP_REQUIRE_WAYLAND=1 CGO_ENABLED=0 go test $(PERF_PKGS) -run '$(PERF_RE)' -count=1
-check: mod-check vet test arch fakes-check perf-check
+check: fmt-check mod-check vet test arch fakes-check perf-check

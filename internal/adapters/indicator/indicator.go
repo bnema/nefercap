@@ -62,7 +62,9 @@ type Indicator struct {
 	// Frame optionally is the part of the output that is recorded, in
 	// output-local logical pixels (a workspace smaller than its output): the
 	// HUD sits at the top centre of it. The zero value is the whole output.
-	// Set it before Run.
+	// The position is fixed when the recording starts: if the workspace frame
+	// changes during the recording, the video follows it and the HUD stays in
+	// place. Set it before Run.
 	Frame ports.Region
 
 	authorize func(context.Context, nefergui.WaylandSurface) error
