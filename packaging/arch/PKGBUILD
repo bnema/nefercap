@@ -1,0 +1,41 @@
+# Built by `make pkg` at the repo root, from `git archive HEAD`.
+pkgname=nefercap
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Screenshots and silent screen recording for Wayland, from one shortcut'
+arch=('x86_64' 'aarch64')
+url='https://github.com/bnema/nefercap'
+license=('GPL-3.0-only')
+# Loaded at runtime (purego, no cgo): not seen by makepkg's library scan.
+depends=('glibc' 'wayland' 'libxkbcommon' 'vulkan-icd-loader' 'vulkan-driver')
+makedepends=('go>=2:1.27')
+optdepends=('ffmpeg: screen recording (libx264)'
+	'wl-clipboard: copy screenshots to the clipboard'
+	'neferwl: hidden-workspace capture, HUD exclusion and capture indicator')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+	cd "$pkgname-$pkgver"
+	export GOPATH="$srcdir/gopath" GOFLAGS='-mod=readonly -modcacherw' GOWORK=off GOTOOLCHAIN=local
+	go mod download
+	go mod vendor
+}
+
+build() {
+	cd "$pkgname-$pkgver"
+	export CGO_ENABLED=0 GOFLAGS='-mod=vendor -trimpath -buildvcs=false -buildmode=pie' GOPROXY=off GOWORK=off GOTOOLCHAIN=local
+	go build -ldflags "-X main.version=$pkgver" -o nefercap ./cmd/nefercap
+}
+
+check() {
+	cd "$pkgname-$pkgver"
+	./nefercap version
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	install -Dm755 nefercap "$pkgdir/usr/bin/nefercap"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/nefercap/README.md"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/nefercap/LICENSE"
+}

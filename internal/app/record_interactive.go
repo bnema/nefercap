@@ -184,6 +184,9 @@ func recordedFrame(ctx context.Context, source *wayland.Source, t ports.Target) 
 	}
 	list, err := source.Workspaces(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ports.Region{}
+		}
 		log := logging.For(ctx, "app")
 		log.Warn().Err(err).Msg("workspace frame unavailable: HUD on the whole output")
 		return ports.Region{}

@@ -274,7 +274,10 @@ func (s *Source) workspaceList() []ports.Workspace {
 
 // workspaceRegion is where the workspace is on o, in output-local logical
 // pixels: its frame from NeferWL's extension, clipped to the output, else the
-// whole output (ext-workspace carries no geometry).
+// whole output (ext-workspace carries no geometry). NeferWL computes the frame
+// clamped to the output and centred, so it never lies outside it; the clip and
+// the whole-output fallback are safeguards only (core's Picker.clip is the
+// single clip applied to the selection).
 func workspaceRegion(w *workspace, o *output) ports.Region {
 	lw, lh := o.logicalSize()
 	whole := ports.Region{Width: lw, Height: lh}

@@ -42,7 +42,7 @@ const (
 	reqNeferwlWorkspaceSource = 1
 	reqNeferwlRegionSource    = 2
 	reqGetWorkspaceFrame      = 3
-	reqWorkspaceFrameDestroy           = 0
+	reqWorkspaceFrameDestroy  = 0
 	reqGetExclusion           = 1
 	reqAttachSurface          = 2
 	reqManagerDestroy         = 0

@@ -1,0 +1,136 @@
+# Builds the GitHub release for a pushed v* tag (.github/workflows/release.yml)
+# and generates the nefercap-bin PKGBUILD. The workflow verifies that PKGBUILD
+# with makepkg before it pushes it to the AUR, so GoReleaser never uploads it.
+version: 2
+
+project_name: nefercap
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: nefercap
+    main: ./cmd/nefercap
+    binary: nefercap
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+      - -buildmode=pie
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    # Same inputs give the same binary.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: nefercap
+    ids: [nefercap]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    # Everything the PKGBUILD package() installs, at the paths of the repo.
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+git:
+  tag_sort: -version:refname
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^style(\\([^)]+\\))?:"
+      - "^test(\\([^)]+\\))?:"
+  groups:
+    - title: Added
+      regexp: "^feat(\\([^)]+\\))?!?:"
+      order: 0
+    - title: Fixed
+      regexp: "^fix(\\([^)]+\\))?!?:"
+      order: 1
+    - title: Performance
+      regexp: "^perf(\\([^)]+\\))?!?:"
+      order: 2
+    - title: Changed
+      regexp: "^(refactor|build)(\\([^)]+\\))?!?:"
+      order: 3
+    - title: Documentation
+      regexp: "^docs(\\([^)]+\\))?!?:"
+      order: 4
+    - title: Maintenance
+      regexp: "^(chore|ci)(\\([^)]+\\))?!?:"
+      order: 5
+    - title: Other changes
+      order: 999
+
+release:
+  github:
+    owner: bnema
+    name: nefercap
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## nefercap {{ .Tag }}
+
+    ### Install on Arch Linux
+
+    ```sh
+    paru -S nefercap-bin   # this release, pre-built (x86_64, aarch64)
+    paru -S nefercap-git   # latest main, built from source
+    ```
+
+    ### Install the pre-built archive
+
+    Linux amd64 and arm64. Replace `amd64` with `arm64` on ARM.
+
+    ```sh
+    gh release download {{ .Tag }} -R bnema/nefercap -p 'nefercap_{{ .Version }}_linux_amd64.tar.gz' -p checksums.txt
+    sha256sum -c --ignore-missing checksums.txt
+    gh attestation verify nefercap_{{ .Version }}_linux_amd64.tar.gz -R bnema/nefercap
+    ```
+
+    The archive holds the `nefercap` binary, the README and the license. Install the binary as `/usr/bin/nefercap`: NeferWL allows that path to capture by default. See the [README](https://github.com/bnema/nefercap#readme) for runtime dependencies.
+  footer: |
+    ---
+
+    **Full changelog**: https://github.com/bnema/nefercap/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+aurs:
+  - name: nefercap-bin
+    ids: [nefercap]
+    homepage: https://github.com/bnema/nefercap
+    description: Screenshots and silent screen recording for Wayland, from one shortcut
+    maintainers:
+      - "bnema <b at bnema dot dev>"
+    license: GPL-3.0-only
+    # The release workflow verifies and publishes the generated PKGBUILD.
+    skip_upload: true
+    provides: [nefercap]
+    conflicts: [nefercap, nefercap-git]
+    # Loaded at runtime (purego, no cgo): not seen by makepkg's library scan.
+    depends:
+      - glibc
+      - wayland
+      - libxkbcommon
+      - vulkan-icd-loader
+      - vulkan-driver
+    optdepends:
+      - "ffmpeg: screen recording (libx264)"
+      - "wl-clipboard: copy screenshots to the clipboard"
+      - "neferwl: hidden-workspace capture, HUD exclusion and capture indicator"
+    package: |-
+      install -Dm755 ./nefercap "${pkgdir}/usr/bin/nefercap"
+      install -Dm644 ./README.md "${pkgdir}/usr/share/doc/nefercap/README.md"
+      install -Dm644 ./LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
