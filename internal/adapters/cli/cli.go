@@ -92,6 +92,9 @@ Script commands (never open the selector):
   screenshot  save a PNG screenshot
   record      record silent video until interrupted or target video length is reached
 
+Other:
+  version     print the nefercap version
+
 Flags:
   -clipboard        copy PNG with wl-copy; no file unless -file is given (shot, screenshot)
   -debug            enable debug logging (all commands)

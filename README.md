@@ -76,6 +76,7 @@ nefercap shot         # selector, screenshot only
 nefercap rec          # selector, recording only
 nefercap stop         # stop the active recording
 nefercap status       # print the recording state
+nefercap version      # print the version
 ```
 
 Scripted commands never open the selector:
