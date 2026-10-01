@@ -1,0 +1,41 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The release workflow runs these checks before it publishes.
+  workflow_call:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  # Arch matches the development system: libwayland and Go versions change
+  # protocol behavior.
+  check:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      # An init process reaps killed children, as on a real session.
+      options: --init
+    env:
+      XDG_RUNTIME_DIR: /tmp/xdg-runtime
+    steps:
+      # wayland: libwayland-server for the in-process test compositor
+      # (NEFERCAP_REQUIRE_WAYLAND=1 fails without it); libxkbcommon is loaded
+      # at runtime through purego; ffmpeg (libx264) runs the encoder tests;
+      # gcc is for the race detector.
+      - run: >-
+          pacman -Syu --noconfirm --needed
+          git go make gcc wayland libxkbcommon ffmpeg
+      - uses: actions/checkout@v4
+      - run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+      - run: |
+          go install github.com/bnema/hexcheck/cmd/hexcheck@v0.2.0
+          go install github.com/vektra/mockery/v3@v3.8.0
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+      - run: make check
+      - run: make race
+      - run: make mocks-check
+      - run: ~/go/bin/staticcheck ./...
