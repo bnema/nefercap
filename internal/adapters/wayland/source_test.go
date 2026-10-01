@@ -409,8 +409,9 @@ func TestConcurrentCallsAreSerialized(t *testing.T) {
 	}
 }
 
-// allocBudget is measured (see the log of TestCaptureAllocations), with
-// headroom.
+// allocBudget is measured (see the log of TestCaptureAllocations: 17 to 18),
+// with a small margin. The session builds the frame handlers once, so a frame
+// only allocates its proxy and the handler slices of the generated binding.
 const allocBudget = 20
 
 // Steady state cost of one capture over the real transport. The measurement

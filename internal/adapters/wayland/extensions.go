@@ -9,6 +9,8 @@ import (
 
 	"github.com/bnema/wlturbo"
 	"github.com/bnema/wlturbo/protocol/core"
+	"github.com/bnema/wlturbo/protocol/imagecapturesource"
+	"github.com/bnema/wlturbo/protocol/xdgoutput"
 
 	"github.com/bnema/nefercap/internal/ports"
 )
@@ -75,6 +77,18 @@ const (
 	exclusionSessionStopped = 1
 )
 
+// requestOnly is a bound NeferWL global or created object that never sends
+// events: wlturbo has no generated binding for the extension.
+type requestOnly struct{ wlturbo.BaseProxy }
+
+func (*requestOnly) EventSignature(uint16) (string, bool) { return "", false }
+
+func newRequestOnly(ctx *wlturbo.Context) *requestOnly {
+	p := &requestOnly{}
+	p.SetContext(ctx)
+	return p
+}
+
 // extensions holds the bound optional NeferWL globals.
 type extensions struct {
 	source    *requestOnly
@@ -82,28 +96,54 @@ type extensions struct {
 }
 
 // bindExtras binds every optional global. None is an error when absent.
-func (s *Source) bindExtras() (err error) {
-	if s.xdgOutputs, err = s.bindOptional(xdgOutputIface, xdgOutputVersion); err != nil {
+func (s *Source) bindExtras() error {
+	x := xdgoutput.NewZxdgOutputManager(s.wl)
+	switch ok, err := s.bindOptional(xdgoutput.ZxdgOutputManagerInterface, xdgOutputVersion, x); {
+	case err != nil:
 		return err
+	case ok:
+		s.xdgOutputs = x
 	}
 	for _, o := range s.outputs {
 		s.watchLogicalSize(o)
 	}
-	if s.ext.source, err = s.bindOptional(sourceManagerIface, extensionVersion); err != nil {
+	var err error
+	if s.ext.source, err = s.bindOptionalExtension(sourceManagerIface); err != nil {
 		return err
 	}
-	if s.ext.exclusion, err = s.bindOptional(exclusionManagerIface, extensionVersion); err != nil {
+	if s.ext.exclusion, err = s.bindOptionalExtension(exclusionManagerIface); err != nil {
 		return err
 	}
 	return s.bindWorkspaces()
 }
 
-func (s *Source) createWorkspaceSource(src *requestOnly, id uint64) error {
+// bindOptionalExtension binds a NeferWL global, nil when the compositor has
+// none.
+func (s *Source) bindOptionalExtension(iface string) (*requestOnly, error) {
+	p := newRequestOnly(s.wl)
+	if ok, err := s.bindOptional(iface, extensionVersion, p); err != nil || !ok {
+		return nil, err
+	}
+	return p, nil
+}
+
+// createWorkspaceSource makes a source that follows the workspace id.
+func (s *Source) createWorkspaceSource(id uint64) (*imagecapturesource.ExtImageCaptureSource, error) {
 	h := s.ws.byID[id]
 	if h == nil || h.removed {
-		return ports.ErrWorkspaceUnavailable
+		return nil, ports.ErrWorkspaceUnavailable
 	}
-	return s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqNeferwlWorkspaceSource, Name: "neferwl_image_capture_source_manager_v1.create_workspace_source", Child: src}, src, h)
+	src := imagecapturesource.NewExtImageCaptureSource(s.wl)
+	err := s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqNeferwlWorkspaceSource, Name: "neferwl_image_capture_source_manager_v1.create_workspace_source", Child: src}, src, h.proxy)
+	return src, err
+}
+
+// createRegionSource makes a source of a region of out, in logical pixels.
+func (s *Source) createRegionSource(out *output, r ports.Region) (*imagecapturesource.ExtImageCaptureSource, error) {
+	src := imagecapturesource.NewExtImageCaptureSource(s.wl)
+	err := s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqNeferwlRegionSource, Name: "neferwl_image_capture_source_manager_v1.create_output_region_source", Child: src},
+		src, out.proxy, int32(r.X), int32(r.Y), int32(r.Width), int32(r.Height))
+	return src, err
 }
 
 // workspaceFrame is one neferwl_workspace_frame_v1: the frame of a workspace
@@ -151,7 +191,7 @@ func (s *Source) requestFrames() (bool, error) {
 		}
 		f := &workspaceFrame{}
 		f.SetContext(s.wl)
-		if err := s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqGetWorkspaceFrame, Name: "neferwl_image_capture_source_manager_v1.get_workspace_frame", Child: f}, f, w); err != nil {
+		if err := s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqGetWorkspaceFrame, Name: "neferwl_image_capture_source_manager_v1.get_workspace_frame", Child: f}, f, w.proxy); err != nil {
 			s.terminate()
 			return false, fmt.Errorf("wayland: get workspace frame: %w", err)
 		}
@@ -253,7 +293,7 @@ func (s *Source) beginExclusion(t ports.Target) (string, error) {
 	}
 	e := &exclusion{}
 	e.SetContext(s.wl)
-	if err := s.wl.Request(wlturbo.Request{Proxy: s.ext.exclusion, Opcode: reqGetExclusion, Name: "neferwl_capture_exclusion_manager_v1.get_exclusion", Child: e}, e, c); err != nil {
+	if err := s.wl.Request(wlturbo.Request{Proxy: s.ext.exclusion, Opcode: reqGetExclusion, Name: "neferwl_capture_exclusion_manager_v1.get_exclusion", Child: e}, e, c.proxy); err != nil {
 		s.terminate()
 		return "", fmt.Errorf("wayland: get exclusion: %w", err)
 	}

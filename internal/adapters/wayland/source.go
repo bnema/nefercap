@@ -20,6 +20,9 @@ import (
 
 	"github.com/bnema/wlturbo"
 	"github.com/bnema/wlturbo/protocol/core"
+	"github.com/bnema/wlturbo/protocol/imagecapturesource"
+	"github.com/bnema/wlturbo/protocol/imagecopycapture"
+	"github.com/bnema/wlturbo/protocol/xdgoutput"
 	"github.com/bnema/zerowrap"
 
 	"github.com/bnema/nefercap/internal/logging"
@@ -38,13 +41,6 @@ const (
 	defaultPollWait = 2 * time.Millisecond
 )
 
-// Globals of the capture protocols.
-const (
-	outputSourceIface = "ext_output_image_capture_source_manager_v1"
-	copyManagerIface  = "ext_image_copy_capture_manager_v1"
-	xdgOutputIface    = "zxdg_output_manager_v1"
-)
-
 // output is the client-side state of one bound wl_output global.
 type output struct {
 	proxy         *core.Output
@@ -54,7 +50,7 @@ type output struct {
 	width, height int32
 	scale         int32
 	lw, lh        int32 // logical size from xdg-output, 0 when unknown
-	xdg           *xdgOutput
+	xdg           *xdgoutput.ZxdgOutput
 	removed       bool
 }
 
@@ -85,9 +81,9 @@ type Source struct {
 	watchActive atomic.Bool
 
 	shm         *core.Shm
-	copyManager *requestOnly // ext_image_copy_capture_manager_v1
-	outSource   *requestOnly // ext_output_image_capture_source_manager_v1
-	xdgOutputs  *requestOnly // zxdg_output_manager_v1, nil when absent
+	copyManager *imagecopycapture.ExtImageCopyCaptureManager
+	outSource   *imagecapturesource.ExtOutputImageCaptureSourceManager
+	xdgOutputs  *xdgoutput.ZxdgOutputManager // nil when absent
 	outputs     map[uint32]*output
 	byProxy     map[uint32]*output // wl_output proxy ID to output
 	bound       int                // wl_output globals bound so far
@@ -176,10 +172,12 @@ func (s *Source) discover() (err error) {
 	if _, err = reg.BindNegotiated(core.ShmInterface, shmVersion, s.shm); err != nil {
 		return fmt.Errorf("wayland: bind wl_shm: %w", err)
 	}
-	if s.copyManager, err = s.bindRequired(copyManagerIface, copyVersion); err != nil {
+	s.copyManager = imagecopycapture.NewExtImageCopyCaptureManager(s.wl)
+	if err = s.bindRequired(imagecopycapture.ExtImageCopyCaptureManagerInterface, s.copyManager); err != nil {
 		return err
 	}
-	if s.outSource, err = s.bindRequired(outputSourceIface, copyVersion); err != nil {
+	s.outSource = imagecapturesource.NewExtOutputImageCaptureSourceManager(s.wl)
+	if err = s.bindRequired(imagecapturesource.ExtOutputImageCaptureSourceManagerInterface, s.outSource); err != nil {
 		return err
 	}
 	if err = s.bindExtras(); err != nil {
@@ -189,28 +187,27 @@ func (s *Source) discover() (err error) {
 }
 
 // bindRequired binds a global that capture cannot work without.
-func (s *Source) bindRequired(iface string, version uint32) (*requestOnly, error) {
-	p := newRequestOnly(s.wl)
-	if _, err := s.display.Registry().BindNegotiated(iface, version, p); err != nil {
+func (s *Source) bindRequired(iface string, p wlturbo.Proxy) error {
+	if _, err := s.display.Registry().BindNegotiated(iface, copyVersion, p); err != nil {
 		if errors.Is(err, wlturbo.ErrGlobalNotFound) {
-			return nil, fmt.Errorf("wayland: the compositor does not support ext-image-copy-capture-v1 (%s missing)", iface)
+			return fmt.Errorf("wayland: the compositor does not support ext-image-copy-capture-v1 (%s missing)", iface)
 		}
-		return nil, fmt.Errorf("wayland: bind %s: %w", iface, err)
+		return fmt.Errorf("wayland: bind %s: %w", iface, err)
 	}
-	return p, nil
+	return nil
 }
 
-// bindOptional binds a global when the compositor offers it.
-func (s *Source) bindOptional(iface string, version uint32) (*requestOnly, error) {
-	p := newRequestOnly(s.wl)
+// bindOptional binds a global when the compositor offers it, and reports
+// whether it did.
+func (s *Source) bindOptional(iface string, version uint32, p wlturbo.Proxy) (bool, error) {
 	_, err := s.display.Registry().BindNegotiated(iface, version, p)
 	switch {
 	case err == nil:
-		return p, nil
+		return true, nil
 	case errors.Is(err, wlturbo.ErrGlobalNotFound):
-		return nil, nil
+		return false, nil
 	}
-	return nil, fmt.Errorf("wayland: bind %s: %w", iface, err)
+	return false, fmt.Errorf("wayland: bind %s: %w", iface, err)
 }
 
 func (s *Source) onOutputGlobal(reg *wlturbo.Registry, name, version uint32) {

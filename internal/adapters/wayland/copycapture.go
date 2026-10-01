@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bnema/wlturbo"
+	"github.com/bnema/wlturbo/protocol/imagecapturesource"
+	"github.com/bnema/wlturbo/protocol/imagecopycapture"
 
 	"github.com/bnema/nefercap/internal/ports"
 )
@@ -14,40 +15,6 @@ import (
 const (
 	shmARGB8888 = uint32(ports.ARGB8888)
 	shmXRGB8888 = uint32(ports.XRGB8888)
-)
-
-// Hand-written proxies for ext-image-capture-source-v1 and
-// ext-image-copy-capture-v1: the wlturbo release in use does not generate
-// them. Only the requests and events nefercap uses are declared.
-
-// requestOnly is a bound global or created object that never sends events.
-type requestOnly struct{ wlturbo.BaseProxy }
-
-func (*requestOnly) EventSignature(uint16) (string, bool) { return "", false }
-
-func newRequestOnly(ctx *wlturbo.Context) *requestOnly {
-	p := &requestOnly{}
-	p.SetContext(ctx)
-	return p
-}
-
-const (
-	reqOutputSourceCreate = 0 // ext_output_image_capture_source_manager_v1.create_source
-	reqSourceDestroy      = 0 // ext_image_capture_source_v1.destroy
-	reqCopyCreateSession  = 0 // ext_image_copy_capture_manager_v1.create_session
-	reqSessionCreateFrame = 0
-	reqSessionDestroy     = 1
-	reqFrameDestroy       = 0
-	reqFrameAttachBuffer  = 1
-	reqFrameDamageBuffer  = 2
-	reqFrameCapture       = 3
-)
-
-// ext_image_copy_capture_frame_v1.failure_reason
-const (
-	failUnknown           = 0
-	failBufferConstraints = 1
-	failStopped           = 2
 )
 
 // maxFrameAttempts bounds the retries of one frame after failures that the
@@ -73,8 +40,8 @@ type constraints struct {
 // session is one ext_image_copy_capture_session_v1. Its events are dispatched
 // on the goroutine that owns the operation.
 type session struct {
-	wlturbo.BaseProxy
-	key sessionKey
+	proxy *imagecopycapture.ExtImageCopyCaptureSession
+	key   sessionKey
 
 	pending constraints
 	current constraints
@@ -88,7 +55,8 @@ type session struct {
 	// lives in buffer cur and stays untouched while the next one is written to
 	// the other buffer, so a Capture that finds the compositor idle (it waits
 	// for damage after the first frame) can repeat the last frame at once.
-	inflight     *frameProxy
+	frame        captureFrame  // outcome of the in-flight frame, reset per frame
+	inflight     *captureFrame // &frame while a frame is in flight, else nil
 	inflightBuf  int
 	inflightGeom bufGeom // buffer layout the in-flight frame was made for
 	haveLast     bool
@@ -96,30 +64,20 @@ type session struct {
 	lastGeom     bufGeom
 	served       int // frames handed out by this session
 	fails        int // consecutive failed frames
+
+	// Frame event handlers, built once and shared by every frame proxy.
+	onTransform func(uint32)
+	onReady     func()
+	onFailed    func(uint32)
 }
 
-func (*session) EventSignature(op uint16) (string, bool) {
-	switch op {
-	case 0:
-		return "uint,uint,", true // buffer_size
-	case 1:
-		return "uint,", true // shm_format
-	case 2:
-		return "array,", true // dmabuf_device
-	case 3:
-		return "uint,array,", true // dmabuf_format
-	case 4, 5:
-		return "", true // done, stopped
-	}
-	return "", false
-}
-
-func (c *session) Dispatch(e *wlturbo.Event) {
-	switch e.Opcode {
-	case 0:
-		c.pending.width, c.pending.height, c.pending.haveSize = e.Uint32(), e.Uint32(), true
-	case 1:
-		format := e.Uint32()
+// newSession wraps a created session proxy and subscribes to its events.
+func newSession(proxy *imagecopycapture.ExtImageCopyCaptureSession, key sessionKey) *session {
+	c := &session{proxy: proxy, key: key}
+	proxy.OnBufferSize(func(width, height uint32) {
+		c.pending.width, c.pending.height, c.pending.haveSize = width, height, true
+	})
+	proxy.OnShmFormat(func(format uint32) {
 		c.pending.sawShm = true
 		switch {
 		case format != shmARGB8888 && format != shmXRGB8888:
@@ -127,46 +85,40 @@ func (c *session) Dispatch(e *wlturbo.Event) {
 		case !c.pending.haveFormat:
 			c.pending.format, c.pending.haveFormat = format, true
 		}
-	case 4:
+	})
+	proxy.OnDone(func() {
 		c.current, c.pending = c.pending, constraints{}
 		c.gen++
-	case 5:
-		c.stopped = true
-	}
+	})
+	proxy.OnStopped(func() { c.stopped = true })
+	c.onTransform = func(transform uint32) { c.frame.transform = transform }
+	c.onReady = func() { c.frame.ready = true }
+	c.onFailed = func(reason uint32) { c.frame.failed, c.frame.reason = true, reason }
+	return c
 }
 
-// frameProxy is one ext_image_copy_capture_frame_v1.
-type frameProxy struct {
-	wlturbo.BaseProxy
+// captureFrame is one ext_image_copy_capture_frame_v1 and its outcome. The
+// session owns a single one, reset for each frame.
+type captureFrame struct {
+	proxy     *imagecopycapture.ExtImageCopyCaptureFrame
 	transform uint32
 	ready     bool
 	failed    bool
 	reason    uint32
 }
 
-func (*frameProxy) EventSignature(op uint16) (string, bool) {
-	switch op {
-	case 0, 4:
-		return "uint,", true // transform, failed
-	case 1:
-		return "int,int,int,int,", true // damage
-	case 2:
-		return "uint,uint,uint,", true // presentation_time
-	case 3:
-		return "", true // ready
+// newCaptureFrame creates the next frame of c, resetting its outcome, and
+// subscribes the session's shared handlers to its events.
+func newCaptureFrame(c *session) (*captureFrame, error) {
+	proxy, err := c.proxy.CreateFrame()
+	if err != nil {
+		return nil, err
 	}
-	return "", false
-}
-
-func (f *frameProxy) Dispatch(e *wlturbo.Event) {
-	switch e.Opcode {
-	case 0:
-		f.transform = e.Uint32()
-	case 3:
-		f.ready = true
-	case 4:
-		f.failed, f.reason = true, e.Uint32()
-	}
+	c.frame = captureFrame{proxy: proxy}
+	proxy.OnTransform(c.onTransform)
+	proxy.OnReady(c.onReady)
+	proxy.OnFailed(c.onFailed)
+	return &c.frame, nil
 }
 
 // sessionKey identifies what a session captures. Crop sessions have a zero
@@ -236,30 +188,27 @@ func (s *Source) sessionFor(key sessionKey, out *output) (*session, error) {
 		}
 		s.dropSession()
 	}
-	src := newRequestOnly(s.wl)
+	var src *imagecapturesource.ExtImageCaptureSource
 	var err error
 	switch {
 	case key.workspace != 0:
-		err = s.createWorkspaceSource(src, key.workspace)
+		src, err = s.createWorkspaceSource(key.workspace)
 	case key.region != (ports.Region{}):
-		r := key.region
-		err = s.wl.Request(wlturbo.Request{Proxy: s.ext.source, Opcode: reqNeferwlRegionSource, Name: "neferwl_image_capture_source_manager_v1.create_output_region_source", Child: src},
-			src, out.proxy, int32(r.X), int32(r.Y), int32(r.Width), int32(r.Height))
+		src, err = s.createRegionSource(out, key.region)
 	default:
-		err = s.wl.Request(wlturbo.Request{Proxy: s.outSource, Opcode: reqOutputSourceCreate, Name: "ext_output_image_capture_source_manager_v1.create_source", Child: src}, src, out.proxy)
+		src, err = s.outSource.CreateSource(out.proxy)
 	}
 	if err != nil {
 		s.terminate()
 		return nil, fmt.Errorf("wayland: create capture source: %w", err)
 	}
-	c := &session{key: key}
-	c.SetContext(s.wl)
-	err = s.wl.Request(wlturbo.Request{Proxy: s.copyManager, Opcode: reqCopyCreateSession, Name: "ext_image_copy_capture_manager_v1.create_session", Child: c}, c, src, uint32(0))
-	_ = s.wl.Request(wlturbo.Request{Proxy: src, Opcode: reqSourceDestroy, Name: "ext_image_capture_source_v1.destroy", Destructor: true})
+	proxy, err := s.copyManager.CreateSession(src, 0)
+	_ = src.Destroy()
 	if err != nil {
 		s.terminate()
 		return nil, fmt.Errorf("wayland: create capture session: %w", err)
 	}
+	c := newSession(proxy, key)
 	s.sess = c
 	return c, nil
 }
@@ -276,7 +225,7 @@ func (s *Source) dropSession() {
 	if c.exclusion != nil {
 		c.exclusion.destroy(s)
 	}
-	_ = s.wl.Request(wlturbo.Request{Proxy: c, Opcode: reqSessionDestroy, Name: "ext_image_copy_capture_session_v1.destroy", Destructor: true})
+	_ = c.proxy.Destroy()
 }
 
 // nextFrame returns the session's current frame.
@@ -341,7 +290,7 @@ func (s *Source) nextFrame(c *session, out *output) (ports.Frame, error) {
 			if c.stopped {
 				return ports.Frame{}, s.stoppedError(c, out)
 			}
-			if c.haveLast && f.reason == failUnknown {
+			if c.haveLast && f.reason == imagecopycapture.FAILURE_REASON_UNKNOWN {
 				return s.lastFrame(c)
 			}
 		default: // still pending after the poll: repeat the last frame
@@ -372,9 +321,9 @@ func (s *Source) awaitFrame(c *session, poll bool) error {
 
 // retryAfterFailure handles a failed frame: one roundtrip, so that a stop or a
 // new constraint batch that follows the failure is seen, then a retry.
-func (s *Source) retryAfterFailure(c *session, f *frameProxy) error {
+func (s *Source) retryAfterFailure(c *session, f *captureFrame) error {
 	s.destroyFrame(c)
-	if f.reason == failStopped {
+	if f.reason == imagecopycapture.FAILURE_REASON_STOPPED {
 		c.stopped = true
 		return nil
 	}
@@ -382,14 +331,14 @@ func (s *Source) retryAfterFailure(c *session, f *frameProxy) error {
 		return errCompositorFailedCapture
 	}
 	switch f.reason {
-	case failBufferConstraints, failUnknown:
+	case imagecopycapture.FAILURE_REASON_BUFFER_CONSTRAINTS, imagecopycapture.FAILURE_REASON_UNKNOWN:
 		return s.roundtrip()
 	}
 	return fmt.Errorf("%w: failure reason %d", errCompositorFailedCapture, f.reason)
 }
 
 // complete hands out a frame the compositor finished.
-func (s *Source) complete(c *session, g bufGeom, f *frameProxy) (ports.Frame, error) {
+func (s *Source) complete(c *session, g bufGeom, f *captureFrame) (ports.Frame, error) {
 	transform := f.transform
 	idx := c.inflightBuf
 	s.destroyFrame(c)
@@ -423,22 +372,21 @@ func (s *Source) startFrame(c *session, g bufGeom) error {
 	if err := s.ensureBuffer(idx, g); err != nil {
 		return err
 	}
-	f := &frameProxy{}
-	f.SetContext(s.wl)
-	if err := s.wl.Request(wlturbo.Request{Proxy: c, Opcode: reqSessionCreateFrame, Name: "ext_image_copy_capture_session_v1.create_frame", Child: f}, f); err != nil {
+	f, err := newCaptureFrame(c)
+	if err != nil {
 		s.terminate()
 		return fmt.Errorf("wayland: create frame: %w", err)
 	}
 	c.inflight, c.inflightBuf, c.inflightGeom = f, idx, g
-	if err := s.wl.Request(wlturbo.Request{Proxy: f, Opcode: reqFrameAttachBuffer, Name: "ext_image_copy_capture_frame_v1.attach_buffer"}, s.bufs[idx].buffer); err != nil {
+	if err := f.proxy.AttachBuffer(s.bufs[idx].buffer); err != nil {
 		s.terminate()
 		return fmt.Errorf("wayland: attach buffer: %w", err)
 	}
-	if err := s.wl.Request(wlturbo.Request{Proxy: f, Opcode: reqFrameDamageBuffer, Name: "ext_image_copy_capture_frame_v1.damage_buffer"}, int32(0), int32(0), int32(g.width), int32(g.height)); err != nil {
+	if err := f.proxy.DamageBuffer(0, 0, int32(g.width), int32(g.height)); err != nil {
 		s.terminate()
 		return fmt.Errorf("wayland: damage buffer: %w", err)
 	}
-	if err := s.wl.Request(wlturbo.Request{Proxy: f, Opcode: reqFrameCapture, Name: "ext_image_copy_capture_frame_v1.capture"}); err != nil {
+	if err := f.proxy.Capture(); err != nil {
 		s.terminate()
 		return fmt.Errorf("wayland: capture request: %w", err)
 	}
@@ -449,7 +397,7 @@ func (s *Source) startFrame(c *session, g bufGeom) error {
 func (s *Source) destroyFrame(c *session) {
 	if f := c.inflight; f != nil {
 		c.inflight = nil
-		_ = s.wl.Request(wlturbo.Request{Proxy: f, Opcode: reqFrameDestroy, Name: "ext_image_copy_capture_frame_v1.destroy", Destructor: true})
+		_ = f.proxy.Destroy()
 	}
 }
 
