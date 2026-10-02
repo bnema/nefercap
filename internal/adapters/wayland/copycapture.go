@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bnema/wlturbo/protocol/imagecapturesource"
-	"github.com/bnema/wlturbo/protocol/imagecopycapture"
+	imagecapturesource "github.com/bnema/go-wayland-bindings/client/extimagecapturesource"
+	imagecopycapture "github.com/bnema/go-wayland-bindings/client/extimagecopycapture"
 
 	"github.com/bnema/nefercap/internal/ports"
 )

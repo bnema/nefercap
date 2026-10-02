@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	extworkspace "github.com/bnema/wlturbo/protocol/workspace"
+	"github.com/bnema/go-wayland-bindings/client/extworkspace"
 
 	"github.com/bnema/nefercap/internal/ports"
 )

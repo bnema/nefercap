@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	core "github.com/bnema/go-wayland-bindings/client/wayland"
 	"github.com/bnema/wlturbo"
-	"github.com/bnema/wlturbo/protocol/core"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bnema/nefercap/internal/adapters/wayland/testserver"
@@ -225,6 +225,9 @@ func TestAuthorizeLayerRejectsBadInput(t *testing.T) {
 	require.Error(t, AuthorizeLayer(context.Background(), nil, nil, testserver.Token, nil))
 	_, srv := newSource(t, extConfig())
 	display, surface := hudConnection(t, srv)
+	require.Error(t, AuthorizeLayer(context.Background(), display, (*core.Surface)(nil), testserver.Token, nil), "typed nil surface")
+	_, other := hudConnection(t, srv)
+	require.Error(t, AuthorizeLayer(context.Background(), display, other, testserver.Token, nil), "surface of another connection")
 	for _, tok := range []string{"", "has space", testserver.Token[:63], testserver.Token + "0", testserver.Token[:63] + "G", testserver.Token[:63] + "A"} {
 		require.Error(t, AuthorizeLayer(context.Background(), display, surface, tok, nil), "%q", tok)
 	}
