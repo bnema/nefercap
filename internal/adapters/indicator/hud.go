@@ -58,7 +58,7 @@ func keepRune(c rune) bool {
 	return unicode.IsPrint(c)
 }
 
-// hud is the indicator model. The view and every write run on the NeferGUI
+// hud is the indicator model. The view and every write run on the layerui
 // owner loop, so nothing is locked. The elapsed time is computed from the
 // monotonic clock reading the view passes to refresh, never from a counter
 // another goroutine advances. start carries a monotonic reading (time.Now), so

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bnema/neferclient"
 	"github.com/bnema/nefergui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,20 +44,49 @@ func newBareModel() (*model, context.Context) {
 	return newModel(ports.Screenshot, testOutputs, 0, sess, false), ctx
 }
 
-func motion(x, y float64) nefergui.InputEvent {
-	return nefergui.InputEvent{Kind: nefergui.InputPointerMotion, X: x, Y: y}
+func motion(x, y float64) nefergui.Input {
+	return nefergui.Input{Kind: nefergui.InputPointerMotion, X: x, Y: y}
 }
 
-func button(x, y float64, pressed bool) nefergui.InputEvent {
+func button(x, y float64, pressed bool) nefergui.Input {
 	k := nefergui.InputPointerRelease
 	if pressed {
 		k = nefergui.InputPointerPress
 	}
-	return nefergui.InputEvent{Kind: k, X: x, Y: y, Button: btnLeft, Pressed: pressed}
+	return nefergui.Input{Kind: k, X: x, Y: y, Button: btnLeft, Pressed: pressed}
 }
 
-func key(name string) nefergui.InputEvent {
-	return nefergui.InputEvent{Kind: nefergui.InputKey, KeyName: name, Pressed: true}
+func key(name string) nefergui.Input {
+	return nefergui.Input{Kind: nefergui.InputKey, Keysym: keysym(name), Pressed: true}
+}
+
+// keysym is the xkb keysym of a key name used by the tests; an unknown name
+// is a keysym the selector ignores.
+func keysym(name string) uint32 {
+	switch name {
+	case "Escape":
+		return 0xff1b
+	case "Tab":
+		return 0xff09
+	case "Return":
+		return 0xff0d
+	case "KP_Enter":
+		return 0xff8d
+	}
+	if len(name) == 1 {
+		return uint32(name[0])
+	}
+	return 0xffffff
+}
+
+func TestKeyNameRoundTrip(t *testing.T) {
+	for _, name := range []string{"Escape", "Tab", "Return", "KP_Enter", "1", "9", "a", "z", "A", "Z", "m", "W"} {
+		assert.Equal(t, name, keyName(keysym(name)), name)
+	}
+	for _, sym := range []uint32{0, '0', ' ', ':', '@', '[', '`', '{', 0xffffff, 0xff08} {
+		assert.Empty(t, keyName(sym), "%#x", sym)
+	}
+	assert.Zero(t, testing.AllocsPerRun(100, func() { _ = keyName('m') }))
 }
 
 func TestDragReleaseAcceptsRegion(t *testing.T) {
@@ -157,7 +187,7 @@ func TestInputResetDropsDrag(t *testing.T) {
 	m.input(button(10, 10, true))
 	m.input(motion(200, 200))
 	require.True(t, m.picker.Dragging())
-	m.input(nefergui.InputEvent{Kind: nefergui.InputReset})
+	m.input(nefergui.Input{Kind: nefergui.InputReset})
 	assert.False(t, m.picker.Dragging())
 	assert.Empty(t, m.label.text)
 	assert.Equal(t, endNone, m.end)
@@ -176,7 +206,7 @@ func TestInputResetBeforeThresholdAndKeepsChoices(t *testing.T) {
 	// A press that never reached the drag threshold is still abandoned, so a
 	// missing release cannot turn the next release into a click-accept.
 	m.input(button(500, 500, true))
-	m.input(nefergui.InputEvent{Kind: nefergui.InputReset})
+	m.input(nefergui.Input{Kind: nefergui.InputReset})
 	m.input(button(500, 500, false)) // stray release: nothing is pressed
 	assert.Equal(t, endNone, m.end)
 
@@ -408,14 +438,14 @@ func TestSessionRunEnded(t *testing.T) {
 }
 
 func TestLayerConfig(t *testing.T) {
-	c := layerConfig("DP-1", nefergui.KeyboardExclusive)
+	c := layerConfig("DP-1", neferclient.KeyboardExclusive)
 	assert.Equal(t, "DP-1", c.Output)
-	assert.Equal(t, nefergui.LayerOverlay, c.Level)
-	assert.Equal(t, nefergui.AnchorTop|nefergui.AnchorBottom|nefergui.AnchorLeft|nefergui.AnchorRight, c.Anchors)
-	assert.Equal(t, nefergui.KeyboardExclusive, c.Keyboard)
+	assert.Equal(t, neferclient.LayerOverlay, c.Level)
+	assert.Equal(t, neferclient.AnchorTop|neferclient.AnchorBottom|neferclient.AnchorLeft|neferclient.AnchorRight, c.Anchors)
+	assert.Equal(t, neferclient.KeyboardExclusive, c.Keyboard)
 	assert.Equal(t, int32(-1), c.ExclusiveZone)
 	assert.Nil(t, c.InputRects, "whole surface takes input")
-	assert.Equal(t, nefergui.KeyboardOnDemand, layerConfig("DP-2", nefergui.KeyboardOnDemand).Keyboard)
+	assert.Equal(t, neferclient.KeyboardOnDemand, layerConfig("DP-2", neferclient.KeyboardOnDemand).Keyboard)
 }
 
 func TestSceneGeometry(t *testing.T) {
@@ -682,7 +712,7 @@ func TestSelectorAllocations(t *testing.T) {
 	}
 	m := newTestModel(t)
 	m.input(button(100, 50, true))
-	same := []nefergui.InputEvent{motion(300, 250), motion(300, 250), motion(300, 250)}
+	same := []nefergui.Input{motion(300, 250), motion(300, 250), motion(300, 250)}
 	for _, ev := range same { // warm the label buffer
 		m.input(ev)
 	}
@@ -730,16 +760,20 @@ func TestIdleSceneEmitsNoEmptyChip(t *testing.T) {
 func TestInputReportsOnlyVisibleChanges(t *testing.T) {
 	m := newTestModel(t)
 	assert.False(t, m.input(motion(50, 50)), "hover draws nothing")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputPointerAxis, DX: 1, DY: 2}), "axis is ignored")
+	assert.False(t, m.input(nefergui.Input{Kind: nefergui.InputPointerAxis, DX: 1, DY: 2}), "axis is ignored")
 	other := button(50, 50, true)
 	other.Button = 0x111
 	assert.False(t, m.input(other), "other buttons are ignored")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputFocusIn}))
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputPointerLeave}))
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputKey, KeyName: "g", Pressed: false}), "release")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputKey, KeyName: "g", Pressed: true, Repeat: true}), "repeat")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputKey, KeyName: "q", Pressed: true}), "unknown key")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputKey, KeyName: "w", Pressed: true}), "W without a workspace")
+	assert.False(t, m.input(nefergui.Input{Kind: nefergui.InputFocusIn}))
+	assert.False(t, m.input(nefergui.Input{Kind: nefergui.InputPointerLeave}))
+	release := key("g")
+	release.Pressed = false
+	assert.False(t, m.input(release), "release")
+	repeat := key("g")
+	repeat.Repeat = true
+	assert.False(t, m.input(repeat), "repeat")
+	assert.False(t, m.input(key("q")), "unknown key")
+	assert.False(t, m.input(key("w")), "W without a workspace")
 
 	assert.False(t, m.input(button(100, 50, true)), "a press alone changes nothing visible")
 	assert.False(t, m.input(motion(102, 51)), "below the drag threshold")
@@ -747,8 +781,8 @@ func TestInputReportsOnlyVisibleChanges(t *testing.T) {
 	assert.False(t, m.input(motion(300, 250)), "same position")
 	assert.False(t, m.input(motion(300, 250)))
 	assert.True(t, m.input(motion(300, 251)), "the rectangle grew")
-	assert.True(t, m.input(nefergui.InputEvent{Kind: nefergui.InputReset}), "a drag preview is dropped")
-	assert.False(t, m.input(nefergui.InputEvent{Kind: nefergui.InputReset}), "nothing left to drop")
+	assert.True(t, m.input(nefergui.Input{Kind: nefergui.InputReset}), "a drag preview is dropped")
+	assert.False(t, m.input(nefergui.Input{Kind: nefergui.InputReset}), "nothing left to drop")
 
 	assert.True(t, m.input(key("g")), "grid toggles")
 	assert.True(t, m.input(key("m")), "monitor outline")

@@ -1,4 +1,4 @@
-// Package selection is the NeferGUI layer-shell capture selector.
+// Package selection is the layer-shell capture selector, drawn with NeferGUI.
 //
 // Select opens one transparent overlay layer surface on every output. Each
 // dims everything except the dragged region, draws thin accent lines and a
@@ -8,8 +8,9 @@
 // One overlay per output: every monitor is selectable at once. A Wayland
 // client cannot hold exclusive keyboard focus on several surfaces, so the first
 // output's overlay is keyboard-exclusive and the others take the keyboard on
-// demand (on click). Each overlay is a separate NeferGUI window with its own
-// model on its own owner loop; they share only a first-decision-wins session.
+// demand (on click). Each overlay is a separate layer surface on its own
+// Wayland connection, with its own model on its own owner loop; they share only
+// a first-decision-wins session.
 package selection
 
 import (
@@ -19,8 +20,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bnema/nefergui"
+	"github.com/bnema/neferclient"
 
+	"github.com/bnema/nefercap/internal/adapters/layerui"
 	"github.com/bnema/nefercap/internal/adapters/uistyle"
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/ports"
@@ -148,33 +150,27 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 
 // run shows one overlay on its own output until the context ends.
 func run(ctx context.Context, sheet string, m *model) error {
-	kb := nefergui.KeyboardOnDemand
+	kb := neferclient.KeyboardOnDemand
 	if m.index == 0 {
-		kb = nefergui.KeyboardExclusive
+		kb = neferclient.KeyboardExclusive
 	}
-	opts := []nefergui.WindowOption{
-		nefergui.Title("NeferCap selector"),
-		nefergui.Size(1, 1),
-		nefergui.Styles(sheet),
-		nefergui.Transparent(),
-		nefergui.Layer(layerConfig(m.outputs[m.index].Name, kb)),
-		nefergui.OnResize(m.resize),
-		nefergui.OnInput(m.input),
-	}
-	if m.wake != nil {
-		opts = append(opts, nefergui.Wake(m.wake))
-	}
-	return nefergui.Run(ctx, m, view, opts...)
+	return layerui.Run(ctx, layerui.Config{
+		Layer:    layerConfig(m.outputs[m.index].Name, kb),
+		Styles:   sheet,
+		Wake:     m.wake, // nil without toggle: never ready
+		OnResize: m.resize,
+		OnInput:  m.input,
+	}, m, view)
 }
 
 // layerConfig is one overlay: every edge, above windows, the given keyboard
 // mode, and an exclusive zone of -1 so no bar shifts it.
-func layerConfig(output string, keyboard nefergui.KeyboardMode) nefergui.LayerConfig {
-	return nefergui.LayerConfig{
+func layerConfig(output string, keyboard neferclient.KeyboardMode) neferclient.LayerConfig {
+	return neferclient.LayerConfig{
 		Output:        output,
 		Namespace:     namespace,
-		Level:         nefergui.LayerOverlay,
-		Anchors:       nefergui.AnchorTop | nefergui.AnchorBottom | nefergui.AnchorLeft | nefergui.AnchorRight,
+		Level:         neferclient.LayerOverlay,
+		Anchors:       neferclient.AnchorTop | neferclient.AnchorBottom | neferclient.AnchorLeft | neferclient.AnchorRight,
 		Keyboard:      keyboard,
 		ExclusiveZone: -1,
 	}

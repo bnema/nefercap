@@ -8,8 +8,8 @@
 // recorded area is not drawn here: the compositor marks it.
 //
 // Capture exclusion is explicit authorization, not a property of how the HUD is
-// built. The caller supplies authorize, which NeferGUI calls with the surface
-// once it is configured and before its first buffer, to register whatever
+// built. The caller supplies authorize, which runs with the HUD's display and
+// wl_surface once it is configured and before its first buffer, to register whatever
 // exclusion the compositor contract requires on that same client; Run refuses
 // to start without it. The layer namespace is only a role hint and authorizes
 // nothing. If authorize fails, Run fails and nothing is shown.
@@ -23,8 +23,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bnema/neferclient"
 	"github.com/bnema/nefergui"
+	"github.com/bnema/wlturbo"
 
+	"github.com/bnema/nefercap/internal/adapters/layerui"
 	"github.com/bnema/nefercap/internal/adapters/uierrors"
 	"github.com/bnema/nefercap/internal/adapters/uistyle"
 	"github.com/bnema/nefercap/internal/ports"
@@ -67,16 +70,20 @@ type Indicator struct {
 	// place. Set it before Run.
 	Frame ports.Region
 
-	authorize func(context.Context, nefergui.WaylandSurface) error
+	authorize Authorize
 	stop      chan<- struct{}
 }
+
+// Authorize registers the HUD's surface with the compositor's capture
+// exclusion; see layerui.Config.OnSurface.
+type Authorize = func(ctx context.Context, display *wlturbo.Display, surface wlturbo.Proxy) error
 
 // New returns an indicator. authorize is required and runs once per Run, on
 // the window's owner loop; its context ends when Run's does, so a blocking wait
 // for the compositor's acknowledgement is interrupted by cancellation. stop
 // should be buffered; a click sends one non-blocking value. The caller reacts
 // by ending the recording.
-func New(authorize func(context.Context, nefergui.WaylandSurface) error, stop chan<- struct{}) *Indicator {
+func New(authorize Authorize, stop chan<- struct{}) *Indicator {
 	return &Indicator{authorize: authorize, stop: stop}
 }
 
@@ -117,15 +124,12 @@ func (i *Indicator) run(ctx context.Context, output ports.Output, start time.Tim
 	go func() { defer wg.Done(); ticker(child, wake) }()
 	defer func() { cancel(); wg.Wait() }()
 
-	runErr := nefergui.Run(child, newHUD(start, i.stop, i.TargetLabel), view,
-		nefergui.Title("NeferCap recording"),
-		nefergui.Size(Width, Height),
-		nefergui.Styles(sheet),
-		nefergui.Transparent(),
-		nefergui.Layer(layerConfig(output.Name, i.Frame)),
-		nefergui.OnSurface(i.authorize),
-		nefergui.Wake(wake),
-	)
+	runErr := layerui.Run(child, layerui.Config{
+		Layer:     layerConfig(output.Name, i.Frame),
+		Styles:    sheet,
+		Wake:      wake,
+		OnSurface: i.authorize,
+	}, newHUD(start, i.stop, i.TargetLabel), view)
 	// Run is only ever ended by ctx: the HUD never decides by itself. Read the
 	// parent once; a bare Canceled is then our own cancellation, and anything
 	// else, including an end with a live parent, is a failure that keeps every
@@ -138,26 +142,28 @@ func (i *Indicator) run(ctx context.Context, output ports.Output, start time.Tim
 // pointer input only inside the Stop button. Centre is that of the output, or
 // of frame when it is set: then the HUD is anchored to the top left of the
 // output and moved by margins.
-func layerConfig(output string, frame ports.Region) nefergui.LayerConfig {
-	c := nefergui.LayerConfig{
+func layerConfig(output string, frame ports.Region) neferclient.LayerConfig {
+	c := neferclient.LayerConfig{
 		Output:        output,
 		Namespace:     namespace,
-		Level:         nefergui.LayerOverlay,
-		Anchors:       nefergui.AnchorTop,
-		Keyboard:      nefergui.KeyboardNone,
+		Level:         neferclient.LayerOverlay,
+		Anchors:       neferclient.AnchorTop,
+		Keyboard:      neferclient.KeyboardNone,
 		ExclusiveZone: -1,
 		Margin:        [4]int32{topMargin, 0, 0, 0},
-		InputRects:    []nefergui.Rect{stopRect()},
+		InputRects:    []neferclient.Rect{stopRect()},
+		Width:         Width,
+		Height:        Height,
 	}
 	if frame.Width > 0 && frame.Height > 0 {
-		c.Anchors = nefergui.AnchorTop | nefergui.AnchorLeft
+		c.Anchors = neferclient.AnchorTop | neferclient.AnchorLeft
 		c.Margin = [4]int32{int32(frame.Y) + topMargin, 0, 0, int32(frame.X + max((frame.Width-Width)/2, 0))}
 	}
 	return c
 }
 
-func stopRect() nefergui.Rect {
-	return nefergui.Rect{X: Width - stopWidth, Y: 0, Width: stopWidth, Height: Height}
+func stopRect() neferclient.Rect {
+	return neferclient.Rect{X: Width - stopWidth, Y: 0, Width: stopWidth, Height: Height}
 }
 
 // ticker sends a non-blocking wake token every second until ctx ends.

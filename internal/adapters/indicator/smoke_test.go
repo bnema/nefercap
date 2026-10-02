@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bnema/nefergui"
+	"github.com/bnema/wlturbo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,8 +31,8 @@ func TestSmokeRun(t *testing.T) {
 	defer cancel()
 	stop := make(chan struct{}, 1)
 	var authorized bool
-	ind := New(func(_ context.Context, s nefergui.WaylandSurface) error {
-		authorized = s.Display != nil && s.Surface != nil
+	ind := New(func(_ context.Context, display *wlturbo.Display, surface wlturbo.Proxy) error {
+		authorized = display != nil && surface != nil && surface.Context() == display.Context()
 		return nil
 	}, stop)
 	done := make(chan error, 1)
