@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
+	imagecapturesource "github.com/bnema/go-wayland-bindings/client/extimagecapturesource"
+	"github.com/bnema/go-wayland-bindings/client/xdgoutput"
 	"github.com/bnema/wlturbo"
-	"github.com/bnema/wlturbo/protocol/core"
-	"github.com/bnema/wlturbo/protocol/imagecapturesource"
-	"github.com/bnema/wlturbo/protocol/xdgoutput"
 
 	"github.com/bnema/nefercap/internal/ports"
 )
@@ -490,12 +490,16 @@ func (l *layerProxy) hand() (state layerState, reason uint32, violation bool) {
 // thread-safe, non-blocking work such as cancelling a context. It never sees
 // the token. The attachment object is never destroyed after a success: that
 // would not release the exclusion, and closing the connection ends it.
-func AuthorizeLayer(ctx context.Context, display *wlturbo.Display, surface *core.Surface, token string, onDetached func(error)) error {
+//
+// surface is the layer's wl_surface proxy, whichever bindings created it; it
+// must belong to display.
+func AuthorizeLayer(ctx context.Context, display *wlturbo.Display, surface wlturbo.Proxy, token string, onDetached func(error)) error {
 	return authorizeLayer(ctx, display, surface, token, onDetached, DefaultAttachTimeout)
 }
 
-func authorizeLayer(ctx context.Context, display *wlturbo.Display, surface *core.Surface, token string, onDetached func(error), timeout time.Duration) error {
-	if display == nil || surface == nil || surface.Context() != display.Context() {
+func authorizeLayer(ctx context.Context, display *wlturbo.Display, surface wlturbo.Proxy, token string, onDetached func(error), timeout time.Duration) error {
+	// A typed nil proxy is a non-nil interface: check the value too.
+	if display == nil || surface == nil || reflect.ValueOf(surface).IsNil() || surface.Context() != display.Context() {
 		return errors.New("wayland: authorize layer: surface does not belong to display")
 	}
 	if !validToken(token) {

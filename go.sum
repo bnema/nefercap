@@ -1,3 +1,5 @@
+github.com/bnema/go-wayland-bindings v0.1.0 h1:mi2vNa8BB5ZCo/hq/9d6Af01yhqY6QXAZ6pkljFI1xk=
+github.com/bnema/go-wayland-bindings v0.1.0/go.mod h1:eWOgjp9vzZEqxm059q1G9F5NXplmv9UAmrDJiivxVjA=
 github.com/bnema/nefergui v0.3.0 h1:JNzvFWt6SNOQ75WSPcTox+M7fHUF/WuyOR/FVWLc/Mg=
 github.com/bnema/nefergui v0.3.0/go.mod h1:M4jp5ZWXBSN94txcrnnsHo7uJESF68ioT7IR86Tz/ZU=
 github.com/bnema/purego v0.13.0-bnema.1 h1:fKRdztnvTmRqAjANMoN+utEIH73dvPqVPJh2iZCCAO8=
