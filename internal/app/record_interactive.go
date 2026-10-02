@@ -14,7 +14,7 @@ import (
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/logging"
 	"github.com/bnema/nefercap/internal/ports"
-	"github.com/bnema/nefergui"
+	"github.com/bnema/wlturbo"
 )
 
 // recordInteractive records and listens for stop requests. With the
@@ -160,8 +160,8 @@ type hudHandle struct {
 func startHUD(ctx context.Context, output ports.Output, frame ports.Region, token string, stop chan<- struct{}, life *lifecycle) hudHandle {
 	ready := make(chan struct{}, 1)
 	done := make(chan error, 1)
-	authorize := func(hookCtx context.Context, surface nefergui.WaylandSurface) error {
-		if err := wayland.AuthorizeLayer(hookCtx, surface.Display, surface.Surface, token, life.detached); err != nil {
+	authorize := func(hookCtx context.Context, display *wlturbo.Display, surface wlturbo.Proxy) error {
+		if err := wayland.AuthorizeLayer(hookCtx, display, surface, token, life.detached); err != nil {
 			return err
 		}
 		ready <- struct{}{}

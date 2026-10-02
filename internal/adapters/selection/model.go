@@ -23,7 +23,7 @@ const (
 )
 
 // model is the state of one output's selector overlay. All methods run on that
-// overlay's NeferGUI owner loop (OnResize, OnInput and the view), so nothing
+// overlay's layerui owner loop (OnResize, OnInput and the view), so nothing
 // here is locked. The decision leaves through the shared session, never through
 // this struct.
 type model struct {
@@ -206,7 +206,7 @@ func (m *model) snapshot() visible {
 // events, other buttons, key releases and repeats) costs no redraw. Accepting
 // or canceling reports true: the overlay is closing. It allocates only when the
 // dimension label text changes.
-func (m *model) input(ev nefergui.InputEvent) bool {
+func (m *model) input(ev nefergui.Input) bool {
 	if m.end != endNone || !m.sized {
 		return false
 	}
@@ -223,13 +223,9 @@ func (m *model) input(ev nefergui.InputEvent) bool {
 		if ev.Button == btnLeft {
 			m.picker.MouseUp(ev.X, ev.Y)
 		}
-	case nefergui.InputReset:
-		// Input was dropped: a release may never arrive. Abandon any press or
-		// drag, keeping the chosen kind, grid and workspace.
-		m.picker.AbandonPress()
 	case nefergui.InputKey:
 		if ev.Pressed && !ev.Repeat && ev.Modifiers&nefergui.ModCtrl == 0 {
-			m.key(ev.KeyName)
+			m.key(keyName(ev.Keysym))
 		}
 	}
 	m.settle()
@@ -263,6 +259,29 @@ func (m *model) key(name string) {
 		}
 	}
 }
+
+// keyName is the xkb name of the keysyms the selector handles, "" for the
+// others. Latin-1 keysyms are their code points. It never allocates.
+func keyName(sym uint32) string {
+	switch sym {
+	case 0xff1b:
+		return "Escape"
+	case 0xff09:
+		return "Tab"
+	case 0xff0d:
+		return "Return"
+	case 0xff8d:
+		return "KP_Enter"
+	}
+	if sym >= '1' && sym <= '9' || sym >= 'A' && sym <= 'Z' || sym >= 'a' && sym <= 'z' {
+		return asciiNames[sym-'1' : sym-'1'+1]
+	}
+	return ""
+}
+
+// asciiNames holds every character from '1' to 'z', so a one-character key
+// name is a substring of it.
+const asciiNames = "123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz"
 
 // outputKey maps "1".."9" to an output index below n.
 func outputKey(name string, n int) (int, bool) {

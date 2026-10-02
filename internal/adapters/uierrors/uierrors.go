@@ -1,4 +1,5 @@
-// Package uierrors holds the error helper shared by the NeferGUI adapters.
+// Package uierrors holds the error helper shared by the layer-surface UI
+// adapters.
 package uierrors
 
 import (
@@ -11,7 +12,7 @@ import (
 // merely wraps a target (fmt.Errorf("x: %w", context.Canceled)) is kept, and so
 // is every sibling of a dropped leaf. It returns nil when nothing else remains.
 //
-// Use it to discard the context.Canceled a NeferGUI Run reports after the
+// Use it to discard the context.Canceled a layerui.Run reports after the
 // adapter itself ended it, without hiding a real error joined to it.
 func Drop(err error, targets ...error) error {
 	if err == nil {
@@ -40,7 +41,7 @@ func Drop(err error, targets ...error) error {
 	return err
 }
 
-// Ended classifies how a NeferGUI Run ended. It is pure: the caller snapshots
+// Ended classifies how a layerui.Run ended. It is pure: the caller snapshots
 // its state once and passes it, so a context that ends between two reads cannot
 // flip the answer.
 //

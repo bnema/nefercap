@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bnema/nefergui"
+	"github.com/bnema/neferclient"
+	"github.com/bnema/wlturbo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -123,27 +124,28 @@ func TestRequestStopNeverBlocks(t *testing.T) {
 
 func TestLayerConfigTakesNoFocusAndOnlyStopInput(t *testing.T) {
 	c := layerConfig("DP-1", ports.Region{})
-	assert.Equal(t, nefergui.KeyboardNone, c.Keyboard)
-	assert.Equal(t, nefergui.LayerOverlay, c.Level)
-	assert.Equal(t, nefergui.AnchorTop, c.Anchors)
+	assert.Equal(t, neferclient.KeyboardNone, c.Keyboard)
+	assert.Equal(t, neferclient.LayerOverlay, c.Level)
+	assert.Equal(t, neferclient.AnchorTop, c.Anchors)
+	assert.Equal(t, [2]int32{Width, Height}, [2]int32{c.Width, c.Height}, "the compositor needs the size on unanchored axes")
 	assert.Equal(t, int32(-1), c.ExclusiveZone)
 	require.Len(t, c.InputRects, 1)
 	r := c.InputRects[0]
-	assert.Equal(t, nefergui.Rect{X: Width - stopWidth, Width: stopWidth, Height: Height}, r)
+	assert.Equal(t, neferclient.Rect{X: Width - stopWidth, Width: stopWidth, Height: Height}, r)
 	assert.LessOrEqual(t, r.X+r.Width, int32(Width))
 }
 
 func TestLayerConfigCentresOnTheRecordedFrame(t *testing.T) {
 	c := layerConfig("DP-1", ports.Region{X: 100, Y: 50, Width: 1000, Height: 600})
-	assert.Equal(t, nefergui.AnchorTop|nefergui.AnchorLeft, c.Anchors)
+	assert.Equal(t, neferclient.AnchorTop|neferclient.AnchorLeft, c.Anchors)
 	assert.Equal(t, [4]int32{50 + topMargin, 0, 0, 100 + (1000-Width)/2}, c.Margin)
-	assert.Equal(t, nefergui.KeyboardNone, c.Keyboard)
+	assert.Equal(t, neferclient.KeyboardNone, c.Keyboard)
 	// A frame narrower than the HUD starts at its left edge.
 	c = layerConfig("DP-1", ports.Region{X: 7, Width: 100, Height: 100})
 	assert.Equal(t, int32(7), c.Margin[3])
 	// No frame: the whole output, centred by the compositor.
 	c = layerConfig("DP-1", ports.Region{})
-	assert.Equal(t, nefergui.AnchorTop, c.Anchors)
+	assert.Equal(t, neferclient.AnchorTop, c.Anchors)
 	assert.Equal(t, [4]int32{topMargin, 0, 0, 0}, c.Margin)
 }
 
@@ -155,7 +157,7 @@ func TestHUDReadabilityAndStopGeometry(t *testing.T) {
 	assert.Contains(t, styleSheet, "width: 5.625rem")
 	assert.Contains(t, styleSheet, "line-height: 2.5rem")
 	assert.Contains(t, styleSheet, "padding: 0; line-height:")
-	assert.Equal(t, nefergui.Rect{X: 294, Y: 0, Width: 90, Height: 40}, stopRect())
+	assert.Equal(t, neferclient.Rect{X: 294, Y: 0, Width: 90, Height: 40}, stopRect())
 }
 
 func BenchmarkRefreshUnchanged(b *testing.B) {
@@ -170,7 +172,7 @@ func BenchmarkRefreshUnchanged(b *testing.B) {
 
 func TestRunRejectsBadSetup(t *testing.T) {
 	stop := make(chan struct{}, 1)
-	ok := func(context.Context, nefergui.WaylandSurface) error { return nil }
+	ok := func(context.Context, *wlturbo.Display, wlturbo.Proxy) error { return nil }
 	out := ports.Output{ID: 1, Name: "DP-1"}
 
 	assert.ErrorIs(t, New(nil, stop).Run(context.Background(), out), ErrNoAuthorize)

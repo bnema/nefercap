@@ -245,20 +245,6 @@ func (p *Picker) MouseUp(x, y float64) bool {
 	return true
 }
 
-// AbandonPress drops an unfinished press and any drag preview, for example
-// when the pointer leaves the surface or input focus is lost, so a button
-// release that is never delivered cannot leave the picker stuck. The chosen
-// kind and workspace are kept and the status stays PickActive. It does
-// nothing after acceptance or cancellation. It reports whether state changed.
-func (p *Picker) AbandonPress() bool {
-	if p.status != PickActive || !(p.pressed || p.dragging || p.rect != (ports.Region{})) {
-		return false
-	}
-	p.pressed, p.dragging = false, false
-	p.rect = ports.Region{}
-	return true
-}
-
 // Confirm accepts the chosen monitor or workspace. It does nothing for the
 // default region kind, whose selection is made by the mouse.
 func (p *Picker) Confirm() bool {

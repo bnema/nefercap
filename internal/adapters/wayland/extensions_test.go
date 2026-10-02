@@ -120,7 +120,8 @@ func TestExclusionEndsWithTargetChange(t *testing.T) {
 	require.Equal(t, 1, srv.Stats().DestroyedExclusions)
 }
 
-// hudConnection is a second connection, like the HUD's, with a surface.
+// hudConnection is a second connection, like the HUD's, with a surface and a
+// goroutine that reads its events, as neferclient's reader does.
 func hudConnection(t *testing.T, srv *testserver.Server) (*wlturbo.Display, *core.Surface) {
 	t.Helper()
 	conn, err := net.Dial("unix", srv.Path)
@@ -134,6 +135,13 @@ func hudConnection(t *testing.T, srv *testserver.Server) (*wlturbo.Display, *cor
 	require.NoError(t, err)
 	surface, err := comp.CreateSurface()
 	require.NoError(t, err)
+	read := make(chan struct{})
+	go func() {
+		defer close(read)
+		for display.Dispatch() == nil {
+		}
+	}()
+	t.Cleanup(func() { _ = display.Close(); <-read })
 	return display, surface
 }
 
@@ -178,8 +186,10 @@ func TestAuthorizeLayerDetachedCallback(t *testing.T) {
 	}))
 	require.Nil(t, got.Load())
 	srv.Detach(0, uint32(DetachExclusionEnded))
-	for len(calls) == 0 {
-		require.NoError(t, display.Roundtrip())
+	select {
+	case <-calls:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onDetached was not called")
 	}
 	d := got.Load()
 	require.NotNil(t, d)
@@ -193,12 +203,12 @@ func TestAuthorizeLayerProtocolViolationClosesDisplay(t *testing.T) {
 	got := make(chan error, 1)
 	require.NoError(t, AuthorizeLayer(context.Background(), display, surface, testserver.Token, func(err error) { got <- err }))
 	srv.SendRaw(0, 0, 0) // a second attached
-	for !display.Closed() {
-		if err := display.Dispatch(); err != nil {
-			break
-		}
+	select {
+	case err := <-got:
+		require.ErrorIs(t, err, ErrExclusionUnavailable)
+	case <-time.After(5 * time.Second):
+		t.Fatal("onDetached was not called")
 	}
-	require.ErrorIs(t, <-got, ErrExclusionUnavailable)
 	require.True(t, display.Closed(), "the surface could be visible in captures: the connection ends")
 }
 

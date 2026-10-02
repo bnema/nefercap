@@ -376,8 +376,8 @@ func (e *LayerDetachedError) Is(target error) bool {
 }
 
 // layerProxy is one neferwl_capture_layer_v1 attachment. Its events are
-// dispatched by whichever goroutine reads the GUI connection: during
-// authorizeLayer that is the caller, afterwards the connection's reader.
+// dispatched by the goroutine that reads the GUI connection; answered is
+// closed on the first answer or violation, so authorizeLayer can wait for it.
 //
 // State machine: pending -> attached | failed; attached -> detached. Any other
 // event is a protocol violation: the exclusion cannot be trusted any more.
@@ -385,6 +385,7 @@ type layerProxy struct {
 	wlturbo.BaseProxy
 	display    *wlturbo.Display
 	onDetached func(error)
+	answered   chan struct{}
 
 	mu         sync.Mutex
 	state      layerState
@@ -440,7 +441,11 @@ func (l *layerProxy) Dispatch(e *wlturbo.Event) {
 			l.notified, notify = true, errLayerProtocol
 		}
 	}
+	settled := l.state != layerPending || l.violation
 	l.mu.Unlock()
+	if settled {
+		l.answer()
+	}
 	if closeDisplay && returned {
 		_ = l.display.Close() // the surface could be visible in captures
 	}
@@ -449,11 +454,13 @@ func (l *layerProxy) Dispatch(e *wlturbo.Event) {
 	}
 }
 
-// settled reports that the answer arrived, or the layer misbehaved.
-func (l *layerProxy) settled() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.state != layerPending || l.violation
+// answer closes answered once; wlturbo serializes Dispatch calls.
+func (l *layerProxy) answer() {
+	select {
+	case <-l.answered:
+	default:
+		close(l.answered)
+	}
 }
 
 // hand marks the layer as owned by the caller of authorizeLayer, and reports
@@ -473,9 +480,11 @@ func (l *layerProxy) hand() (state layerState, reason uint32, violation bool) {
 // confirmed the exclusion for this very attachment, so the surface is safe to
 // show.
 //
-// AuthorizeLayer dispatches display's events itself until the attachment
-// answers, so it must run before the connection's event loop starts. A
-// refusal returns an *AttachFailedError. A protocol error is returned as the
+// Other goroutines must keep reading display's events meanwhile (with
+// neferclient: its reader, and the owner calling Conn.Dispatch so the reader
+// is never stalled by a full queue). AuthorizeLayer only sends the request
+// and waits for the answer, so it never competes with them. A refusal returns an
+// *AttachFailedError. A protocol error is returned as the
 // display's error. A cancelled ctx, or no answer within DefaultAttachTimeout
 // (an error wrapping context.DeadlineExceeded), closes display before
 // returning: the surface must then stay unmapped. So does a violation of the
@@ -492,7 +501,7 @@ func (l *layerProxy) hand() (state layerState, reason uint32, violation bool) {
 // would not release the exclusion, and closing the connection ends it.
 //
 // surface is the layer's wl_surface proxy, whichever bindings created it; it
-// must belong to display, and nothing else may dispatch display meanwhile.
+// must belong to display.
 func AuthorizeLayer(ctx context.Context, display *wlturbo.Display, surface wlturbo.Proxy, token string, onDetached func(error)) error {
 	return authorizeLayer(ctx, display, surface, token, onDetached, DefaultAttachTimeout)
 }
@@ -519,11 +528,14 @@ func authorizeLayer(ctx context.Context, display *wlturbo.Display, surface wltur
 	stop := context.AfterFunc(wctx, func() { _ = display.Close() })
 	defer stop()
 
-	l := &layerProxy{display: display, onDetached: onDetached}
+	l := &layerProxy{display: display, onDetached: onDetached, answered: make(chan struct{})}
 	l.SetContext(display.Context())
 	err := display.Context().Request(wlturbo.Request{Proxy: m, Opcode: reqAttachSurface, Name: "neferwl_capture_exclusion_manager_v1.attach_surface", Child: l}, l, token, surface)
-	for err == nil && !l.settled() {
-		err = display.Dispatch()
+	if err == nil {
+		select {
+		case <-l.answered:
+		case <-wctx.Done(): // the watcher closes display
+		}
 	}
 	// Detach the watcher before anything else is decided or sent. When stop
 	// reports false the watcher has fired or is firing: cancellation and the

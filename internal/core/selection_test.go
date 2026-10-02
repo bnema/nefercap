@@ -303,78 +303,6 @@ func TestPickerChangedFlags(t *testing.T) {
 	assert.False(t, p.Confirm(), "no confirm mid-press")
 }
 
-func TestPickerAbandonPressWithoutMotion(t *testing.T) {
-	p := newPicker(t, 4, 1920, 1080)
-	const id = 1<<40 + 9
-	p.SetWorkspace(id, ports.Region{Width: 1900, Height: 1000})
-	assert.False(t, p.AbandonPress(), "nothing to abandon")
-	p.MouseDown(100, 100)
-	assert.False(t, p.SelectWorkspace(), "blocked while pressed")
-	assert.True(t, p.AbandonPress())
-	assert.False(t, p.AbandonPress(), "already clear")
-	assert.False(t, p.MouseUp(100, 100), "release after abandon is ignored")
-	assert.Equal(t, core.PickActive, p.Status())
-
-	assert.True(t, p.SelectWorkspace())
-	assert.True(t, p.Confirm())
-	res, ok := p.Result()
-	require.True(t, ok)
-	assert.Equal(t, ports.Target{OutputID: 4, WorkspaceID: id}, res.Target())
-}
-
-func TestPickerAbandonDragKeepsModes(t *testing.T) {
-	p := newPicker(t, 4, 1000, 800)
-	ws := ports.Region{X: 10, Y: 10, Width: 500, Height: 400}
-	p.SetWorkspace(21, ws)
-	p.SelectWorkspace()
-	p.MouseDown(100, 100)
-	p.MouseMove(300, 300)
-	_, dragging := p.Rect()
-	require.True(t, dragging)
-
-	assert.True(t, p.AbandonPress())
-	_, dragging = p.Rect()
-	assert.False(t, dragging)
-	assert.False(t, p.Dragging())
-	assert.Equal(t, core.PickWorkspace, p.Kind())
-	id, r, ok := p.Workspace()
-	assert.True(t, ok)
-	assert.Equal(t, uint64(21), id)
-	assert.Equal(t, ws, r)
-	assert.Equal(t, core.PickActive, p.Status())
-
-	// A fresh press starts from a clean anchor and drags normally.
-	p.MouseDown(600, 600)
-	p.MouseMove(700, 650)
-	p.MouseUp(700, 650)
-	res, ok := p.Result()
-	require.True(t, ok)
-	assert.Equal(t, ports.Region{X: 600, Y: 600, Width: 100, Height: 50}, res.Region)
-	assert.Equal(t, core.PickRegion, res.Kind)
-}
-
-func TestPickerAbandonPressAfterEnd(t *testing.T) {
-	a := newPicker(t, 1, 100, 100)
-	a.MouseDown(10, 10)
-	a.MouseMove(60, 60)
-	a.MouseUp(60, 60)
-	before, _ := a.Result()
-	assert.False(t, a.AbandonPress())
-	after, ok := a.Result()
-	assert.True(t, ok)
-	assert.Equal(t, before, after)
-
-	c := newPicker(t, 1, 100, 100)
-	c.MouseDown(10, 10)
-	c.Cancel()
-	assert.False(t, c.AbandonPress())
-	assert.Equal(t, core.PickCanceled, c.Status())
-
-	var idle core.Picker
-	assert.False(t, idle.AbandonPress())
-	assert.Equal(t, core.PickIdle, idle.Status())
-}
-
 func TestPickerAllocations(t *testing.T) {
 	p := newPicker(t, 1, 1920, 1080)
 	p.SetWorkspace(1, ports.Region{Width: 100, Height: 100})
@@ -385,9 +313,6 @@ func TestPickerAllocations(t *testing.T) {
 			_, _ = p.Rect()
 			_, _ = p.Result()
 		}
-		p.AbandonPress()
-		p.MouseDown(5, 5)
-		p.AbandonPress()
 		p.SelectMonitor()
 		p.SelectRegion()
 		p.Cancel()
