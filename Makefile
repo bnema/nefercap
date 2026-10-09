@@ -44,7 +44,7 @@ fakes-check:
 	rc=0; grep -rniE '$(FAKES)' --include='*_test.go' --exclude='*_mock_test.go' $$dirs || rc=$$?; \
 	[ $$rc -eq 1 ] || { [ $$rc -eq 0 ] && echo 'handwritten test double: add an interface and a Mockery entry (see AGENTS.md)' >&2; exit 1; }
 arch:
-	$(HEXCHECK) -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
+	$(HEXCHECK) -config .hexcheck.yaml -root . ./...
 # Steady-state allocation guards. PERF_TESTS lists exact test names and PERF_PKGS
 # the packages holding them. Every named test must exist, so the guard cannot
 # pass vacuously when a frame-path test is removed or renamed.
