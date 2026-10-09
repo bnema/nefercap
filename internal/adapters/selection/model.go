@@ -2,6 +2,7 @@ package selection
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strconv"
 
@@ -50,6 +51,10 @@ type model struct {
 
 	end  endKind
 	sess *session // shared first-decision record; the only cross-overlay state
+
+	// backdrop is the frozen screen drawn under everything, nil for a live
+	// (transparent) overlay. It is never modified after the overlay starts.
+	backdrop image.Image
 
 	workspace       ports.Workspace // zero ID: none
 	header          string          // static per surface

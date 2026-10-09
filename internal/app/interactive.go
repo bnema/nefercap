@@ -43,15 +43,48 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 	if options.Command == cli.AllInOne {
 		selector.AllowToggle()
 	}
+	if freezes(options, settings) {
+		frames, err := source.Freeze(ctx, frozenOutputs(outputs))
+		if err != nil {
+			return ports.Selection{}, false, err
+		}
+		if _, err := selector.WithBackdrops(frames); err != nil {
+			return ports.Selection{}, false, err
+		}
+	}
 	sel, accepted, err := selector.Select(ctx, outputs)
 	if err != nil || !accepted {
 		return ports.Selection{}, false, err
+	}
+	if sel.Mode == ports.Record {
+		source.Thaw() // a recording captures the live screen
+	} else {
+		source.Thaw(sel.Target.OutputID) // only the chosen output is captured
 	}
 	sel.Duration = options.Duration
 	if err := assignDestination(&sel, options, settings); err != nil {
 		return ports.Selection{}, false, err
 	}
 	return sel, true, nil
+}
+
+// freezes reports whether the selector shows, and a screenshot captures, a
+// still copy of the screen. rec always records the live screen; all-in-one
+// shows the copy only in screenshot mode and thaws for a recording.
+func freezes(options cli.Options, settings config.Settings) bool {
+	return settings.Freeze && (options.Command == cli.Shot || options.Command == cli.AllInOne)
+}
+
+// frozenOutputs lists the outputs that can show a frozen screen; larger ones
+// stay live, in the selector and in the screenshot.
+func frozenOutputs(outputs []ports.Output) []uint32 {
+	var ids []uint32
+	for _, o := range outputs {
+		if selection.CanBackdrop(o) {
+			ids = append(ids, o.ID)
+		}
+	}
+	return ids
 }
 
 // checkDirs creates and checks the default directories a confirmed capture

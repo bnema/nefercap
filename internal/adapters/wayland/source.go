@@ -91,9 +91,10 @@ type Source struct {
 	conn        net.Conn
 	pollWait    time.Duration // how long Capture waits for a pending frame
 
-	sess *session // the one live capture session, nil before the first capture
-	ext  extensions
-	ws   workspaceState
+	sess   *session               // the one live capture session, nil before the first capture
+	frozen map[uint32]ports.Frame // by output ID, set by Freeze: Capture serves these
+	ext    extensions
+	ws     workspaceState
 }
 
 var _ ports.Source = (*Source)(nil)
@@ -416,7 +417,10 @@ func (s *Source) Capture(ctx context.Context, t ports.Target) (ports.Frame, erro
 	if err := s.begin(ctx); err != nil {
 		return ports.Frame{}, err
 	}
-	frame, err := s.captureTarget(t)
+	frame, frozen, err := s.frozenTarget(t)
+	if !frozen {
+		frame, err = s.captureTarget(t)
+	}
 	if err = s.finish(ctx, err); err != nil {
 		return ports.Frame{}, err
 	}
@@ -438,5 +442,6 @@ func (s *Source) Close() error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.detachWatcher()
+	s.frozen = nil
 	return s.releaseBuffers()
 }

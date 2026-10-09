@@ -61,6 +61,8 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		{"selector.grid =", "line 1: selector.grid must be on or off"},
 		{"selector.other = on", "line 1: expected each of"},
 		{"selector.grid = on\nselector.grid = off", "line 2: expected each of"},
+		{"selector.freeze = yes", "line 1: selector.freeze must be on or off"},
+		{"selector.freeze = on\nselector.freeze = on", "line 2: expected each of"},
 		{strings.Repeat("#", maxBytes+1), "exceeds 4096 bytes"},
 	} {
 		t.Run(tc.text[:min(len(tc.text), 40)], func(t *testing.T) {
@@ -131,7 +133,7 @@ func TestLoadPathsAndOutput(t *testing.T) {
 	saveConfig(t, path, "# c\nscreenshot.dir = ~/Pics/Shots\nvideo.dir=/var/tmp/vids/\nscreenshot.output = file+clipboard\nselector.grid = off\n")
 	got, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, Settings{Grid: false, ScreenshotDir: filepath.Join(home, "Pics", "Shots"), VideoDir: "/var/tmp/vids", Output: OutputFileClipboard}, got)
+	assert.Equal(t, Settings{Grid: false, Freeze: true, ScreenshotDir: filepath.Join(home, "Pics", "Shots"), VideoDir: "/var/tmp/vids", Output: OutputFileClipboard}, got)
 
 	saveConfig(t, path, "screenshot.dir = ~/\nscreenshot.output = clipboard\n")
 	got, err = Load()
@@ -145,7 +147,26 @@ func TestLoadDefaultsOutputFile(t *testing.T) {
 	configRoot(t)
 	got, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, Settings{Grid: true, Output: OutputFile}, got)
+	assert.Equal(t, Settings{Grid: true, Freeze: true, Output: OutputFile}, got)
+}
+
+func TestLoadFreeze(t *testing.T) {
+	for _, tc := range []struct {
+		text   string
+		freeze bool
+	}{
+		{"", true},
+		{"selector.freeze = on\n", true},
+		{"selector.freeze = off\n", false},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			saveConfig(t, configRoot(t), tc.text)
+			got, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, tc.freeze, got.Freeze)
+			assert.True(t, got.Grid, "independent of selector.grid")
+		})
+	}
 }
 
 func TestLoadRejectsInvalidNewKeys(t *testing.T) {

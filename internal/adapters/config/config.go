@@ -27,22 +27,25 @@ const (
 )
 
 // Settings holds the persistent configuration. G toggles Grid for the current
-// selection without changing the saved setting. The directories are absolute,
-// or empty for the XDG default.
+// selection without changing the saved setting. Freeze shows a still copy of
+// the screen while a screenshot is selected, and captures that copy. The
+// directories are absolute, or empty for the XDG default.
 type Settings struct {
 	Grid          bool
+	Freeze        bool
 	ScreenshotDir string
 	VideoDir      string
 	Output        ScreenshotOutput
 }
 
-const knownKeys = "selector.grid, screenshot.dir, screenshot.output, video.dir"
+const knownKeys = "selector.grid, selector.freeze, screenshot.dir, screenshot.output, video.dir"
 
 // Load reads $XDG_CONFIG_HOME/nefercap/config (or ~/.config/nefercap/config).
-// An absent file or setting enables the full monitor grid. Invalid settings
-// fail explicitly rather than silently changing the requested appearance.
+// An absent file or setting enables the full monitor grid and the frozen
+// screenshot selector. Invalid settings fail explicitly rather than silently
+// changing the requested appearance.
 func Load() (Settings, error) {
-	settings := Settings{Grid: true, Output: OutputFile}
+	settings := Settings{Grid: true, Freeze: true, Output: OutputFile}
 	root := os.Getenv("XDG_CONFIG_HOME")
 	if !filepath.IsAbs(root) {
 		home, err := os.UserHomeDir()
@@ -75,7 +78,7 @@ func Load() (Settings, error) {
 	if len(data) > maxBytes {
 		return Settings{}, fmt.Errorf("config %s exceeds %d bytes", path, maxBytes)
 	}
-	var seen [4]bool
+	var seen [len(keys)]bool
 	for index, raw := range strings.Split(strings.TrimPrefix(string(data), "\ufeff"), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -98,19 +101,14 @@ func Load() (Settings, error) {
 	return settings, nil
 }
 
-var keys = [...]string{"selector.grid", "screenshot.dir", "screenshot.output", "video.dir"}
+var keys = [...]string{"selector.grid", "selector.freeze", "screenshot.dir", "screenshot.output", "video.dir"}
 
 func apply(s *Settings, key, value string) (err error) {
 	switch key {
 	case "selector.grid":
-		switch value {
-		case "on":
-			s.Grid = true
-		case "off":
-			s.Grid = false
-		default:
-			return errors.New("selector.grid must be on or off")
-		}
+		s.Grid, err = onOff(key, value)
+	case "selector.freeze":
+		s.Freeze, err = onOff(key, value)
 	case "screenshot.output":
 		switch out := ScreenshotOutput(value); out {
 		case OutputFile, OutputFileClipboard, OutputClipboard:
@@ -124,6 +122,16 @@ func apply(s *Settings, key, value string) (err error) {
 		s.VideoDir, err = dir(key, value)
 	}
 	return err
+}
+
+func onOff(key, value string) (bool, error) {
+	switch value {
+	case "on":
+		return true, nil
+	case "off":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s must be on or off", key)
 }
 
 // dir accepts an absolute path or one starting with ~/ (the home directory).

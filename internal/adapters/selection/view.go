@@ -1,6 +1,10 @@
 package selection
 
-import "github.com/bnema/nefergui"
+import (
+	"github.com/bnema/nefergui"
+
+	"github.com/bnema/nefercap/internal/ports"
+)
 
 // view draws the scene. Geometry goes through Node.Rect, so no CSS strings
 // are built per frame; classes come from the embedded stylesheet. Boxes with no
@@ -11,6 +15,11 @@ func view(f *nefergui.Frame, m *model) {
 	m.refreshFooter()
 	root := f.Root(nefergui.Class("root"))
 	st := root.Stack(nefergui.Class("scene"))
+	if drawsBackdrop(m) {
+		// The frozen screen, scaled to fill the logical surface.
+		box := st.Box(nefergui.Key("backdrop"), nefergui.Class("backdrop")).Rect(0, 0, float64(m.w), float64(m.h))
+		box.Image(m.backdrop)
+	}
 	s := m.scene()
 	for i, r := range s.dim {
 		box(st, dimKeys[i], "dim", r)
@@ -33,6 +42,12 @@ func view(f *nefergui.Frame, m *model) {
 	if n := tag(st, "footer", s.footer); n.ok {
 		n.node.Text(m.footerText)
 	}
+}
+
+// drawsBackdrop: a screenshot selection shows the frozen screen; a recording
+// selects on the live screen.
+func drawsBackdrop(m *model) bool {
+	return m.backdrop != nil && m.mode == ports.Screenshot && m.w > 0 && m.h > 0
 }
 
 type tagged struct {

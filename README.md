@@ -43,6 +43,7 @@ On NeferWL a workspace recording follows that workspace, even when you switch to
 ## Features
 
 - **One shortcut.** Screenshot and recording share one selector; the same key stops a recording.
+- **Frozen screenshots.** The screenshot selector shows a still copy of the screen, and the screenshot is exactly that copy.
 - **Clean video.** With NeferWL the compositor keeps the border and HUD out of the recording.
 - **Clipboard.** Screenshots can be saved, copied, or both.
 - **Small footprint.** One capture in flight, reused buffers, no redraw while idle. Allocation tests guard the hot paths.
@@ -54,6 +55,7 @@ On NeferWL a workspace recording follows that workspace, even when you switch to
 
 ```ini
 selector.grid = on
+selector.freeze = on
 screenshot.dir = ~/Pictures/Screenshots
 screenshot.output = file+clipboard
 video.dir = ~/Videos
@@ -62,9 +64,12 @@ video.dir = ~/Videos
 | Key | Values | Default |
 | --- | --- | --- |
 | `selector.grid` | `on`, `off` | `on` |
+| `selector.freeze` | `on`, `off` | `on` |
 | `screenshot.dir` | absolute or `~/` path | `$XDG_PICTURES_DIR/Screenshots` |
 | `screenshot.output` | `file`, `file+clipboard`, `clipboard` | `file` |
 | `video.dir` | absolute or `~/` path | `$XDG_VIDEOS_DIR` |
+
+With `selector.freeze = on`, `nefercap shot` and the all-in-one selector in screenshot mode show the screen as it was when the selector opened, and capture that image. Recording always selects and records the live screen. Rotated outputs, and outputs wider or taller than 4096 pixels, stay live.
 
 Unknown keys, duplicates and invalid values are reported before the selector opens. Files are private, named with a timestamp, never overwritten, and their path is printed on stdout.
 

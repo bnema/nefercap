@@ -83,6 +83,7 @@ Selector keys and mouse:
 
 Config: $XDG_CONFIG_HOME/nefercap/config (default ~/.config/nefercap/config)
   selector.grid = off                 hide guides on startup; G still toggles them
+  selector.freeze = off               screenshot selector shows the live screen (default on: still copy)
   screenshot.dir = ~/Pictures/Shots   absolute or ~/ path; default XDG Pictures/Screenshots
   screenshot.output = file+clipboard  file (default), file+clipboard or clipboard
   video.dir = ~/Videos                absolute or ~/ path; default XDG Videos

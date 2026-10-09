@@ -18,6 +18,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"image"
 	"sync"
 
 	"github.com/bnema/neferclient"
@@ -53,6 +54,7 @@ type Selector struct {
 	grid        bool
 	toggle      bool
 	noIndicator bool
+	backdrops   map[uint32]image.Image // frozen screens by output ID
 }
 
 var _ ports.Selector = (*Selector)(nil)
@@ -82,6 +84,43 @@ func (s *Selector) WithCapabilities(c ports.Capabilities) *Selector {
 		s.workspaces = nil
 	}
 	return s
+}
+
+// maxBackdrop is the largest side NeferGUI accepts for one image.
+const maxBackdrop = 4096
+
+// CanBackdrop reports whether an output of this physical mode can show a
+// frozen frame. A larger output must stay live: freeze only the others.
+func CanBackdrop(o ports.Output) bool {
+	return o.Width > 0 && o.Height > 0 && max(o.Width, o.Height) <= maxBackdrop
+}
+
+// WithBackdrops draws each output's frozen frame under its overlay instead of
+// the live screen; outputs without a frame stay live. A frame larger than
+// CanBackdrop allows is an error. The frames are copied, so the caller may
+// release them once this returns.
+func (s *Selector) WithBackdrops(frames map[uint32]ports.Frame) (*Selector, error) {
+	s.backdrops = make(map[uint32]image.Image, len(frames))
+	for id, f := range frames {
+		if f.Width > maxBackdrop || f.Height > maxBackdrop {
+			return s, fmt.Errorf("selection: frozen frame of output %d is %dx%d, at most %d per side", id, f.Width, f.Height, maxBackdrop)
+		}
+		s.backdrops[id] = backdropImage(f)
+	}
+	return s, nil
+}
+
+// backdropImage converts a validated frame to an opaque image. NRGBA is the
+// format NeferGUI uploads without another conversion.
+func backdropImage(f ports.Frame) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, f.Width, f.Height))
+	for y := range f.Height {
+		src, dst := f.Row(y), img.Pix[y*img.Stride:]
+		for x := 0; x+3 < len(src); x += 4 {
+			dst[x], dst[x+1], dst[x+2], dst[x+3] = src[x+2], src[x+1], src[x], 0xff
+		}
+	}
+	return img
 }
 
 // AllowToggle lets Tab switch between screenshot and record selection. The
@@ -129,6 +168,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
 		m.noIndicator = s.noIndicator
+		m.backdrop = s.backdrops[outputs[i].ID]
 		if s.toggle {
 			m.toggle, m.wake = true, make(chan struct{}, 1)
 			sess.wakes = append(sess.wakes, m.wake)
@@ -141,6 +181,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 		}()
 	}
 	wg.Wait()
+	s.backdrops = nil // every overlay ended: nothing draws them any more
 	result, ok, err := sess.outcome(ctx)
 	if err != nil || !ok {
 		return ports.Selection{}, false, err
