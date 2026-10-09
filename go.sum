@@ -2,8 +2,8 @@ github.com/bnema/go-wayland-bindings v0.1.0 h1:mi2vNa8BB5ZCo/hq/9d6Af01yhqY6QXAZ
 github.com/bnema/go-wayland-bindings v0.1.0/go.mod h1:eWOgjp9vzZEqxm059q1G9F5NXplmv9UAmrDJiivxVjA=
 github.com/bnema/neferclient v0.3.0 h1:sEBphi11YpgMOPYHW1OcDtQYA8aD3WSaFILnb8fdp90=
 github.com/bnema/neferclient v0.3.0/go.mod h1:CzZflJIvinLP8u0rYPjdmAnZjl4Ec2cvdnEGvqFO4Yw=
-github.com/bnema/nefergui v0.6.1 h1:PkEccPjc5SVXfaGvclS4wO2l15d4TJPSinZzgIWbYmM=
-github.com/bnema/nefergui v0.6.1/go.mod h1:G2iRRleA9bjSohU1RySwRqqxS0BbkPziK407HkuyEBc=
+github.com/bnema/nefergui v0.7.1 h1:e9Ib7Z1mHRNaxd5cEaNEUcEEvvTWYR9VDCqiYmOdiBI=
+github.com/bnema/nefergui v0.7.1/go.mod h1:G2iRRleA9bjSohU1RySwRqqxS0BbkPziK407HkuyEBc=
 github.com/bnema/purego v0.13.0-bnema.1 h1:fKRdztnvTmRqAjANMoN+utEIH73dvPqVPJh2iZCCAO8=
 github.com/bnema/purego v0.13.0-bnema.1/go.mod h1:xS1iX3noypxnbOUEUAqOvkfnUzgHuu19VtL4+dfUMJM=
 github.com/bnema/purego-libwayland v0.8.0 h1:e82G1nMre4HvnR1Q8TvdnVNITUStSc+hD3eMwkYjxQY=
