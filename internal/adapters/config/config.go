@@ -4,12 +4,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
-	"syscall"
+
+	"github.com/bnema/kvconf"
 )
 
 const (
@@ -40,114 +38,84 @@ type Settings struct {
 
 const knownKeys = "selector.grid, selector.freeze, screenshot.dir, screenshot.output, video.dir"
 
+// Strict: a line without "=", an unknown key or a duplicate is fatal. A "#"
+// only starts a comment at the start of a line, and values are never unquoted.
+var options = kvconf.Options{Strict: true, Comments: kvconf.CommentLine, RawValues: true, MaxBytes: maxBytes}
+
+// file is the config file as kvconf decodes it, before it becomes Settings.
+type file struct {
+	Grid     onOff            `kv:"selector.grid"`
+	Freeze   onOff            `kv:"selector.freeze"`
+	ShotDir  dirPath          `kv:"screenshot.dir"`
+	VideoDir dirPath          `kv:"video.dir"`
+	Output   ScreenshotOutput `kv:"screenshot.output" oneof:"file|file+clipboard|clipboard"`
+}
+
+// onOff accepts only "on" and "off" (kvconf's bool also takes true/yes/1).
+type onOff bool
+
+func (o *onOff) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "on":
+		*o = true
+	case "off":
+		*o = false
+	default:
+		return errors.New("must be on or off")
+	}
+	return nil
+}
+
+// dirPath is a kvconf.Path that refuses a bare "~" and paths over maxPath.
+type dirPath string
+
+func (d *dirPath) UnmarshalText(text []byte) error {
+	if len(text) > maxPath {
+		return errors.New("must be a non-empty path")
+	}
+	if string(text) == "~" {
+		return errors.New("must be an absolute path or start with ~/")
+	}
+	var p kvconf.Path
+	if err := p.UnmarshalText(text); err != nil {
+		return err
+	}
+	*d = dirPath(p)
+	return nil
+}
+
 // Load reads $XDG_CONFIG_HOME/nefercap/config (or ~/.config/nefercap/config).
 // An absent file or setting enables the full monitor grid and the frozen
 // screenshot selector. Invalid settings fail explicitly rather than silently
 // changing the requested appearance.
 func Load() (Settings, error) {
 	settings := Settings{Grid: true, Freeze: true, Output: OutputFile}
-	root := os.Getenv("XDG_CONFIG_HOME")
-	if !filepath.IsAbs(root) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return settings, nil
-		}
-		root = filepath.Join(home, ".config")
-	}
-	path := filepath.Join(root, "nefercap", "config")
-	// Nonblocking open also protects against a FIFO substituted before Stat.
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, os.ErrNotExist) {
+	path, err := kvconf.DefaultPath("nefercap", "config")
+	if err != nil {
 		return settings, nil
 	}
-	if err != nil {
-		return Settings{}, fmt.Errorf("open config: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return Settings{}, fmt.Errorf("stat config: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return Settings{}, fmt.Errorf("config %s: expected a regular file", path)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil {
-		return Settings{}, fmt.Errorf("read config %s: %w", path, err)
-	}
-	if len(data) > maxBytes {
+	data, err := kvconf.ReadFile(path, options)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return settings, nil
+	case errors.Is(err, kvconf.ErrTooLarge):
 		return Settings{}, fmt.Errorf("config %s exceeds %d bytes", path, maxBytes)
+	case err != nil && strings.HasSuffix(err.Error(), "not a regular file"):
+		return Settings{}, fmt.Errorf("config %s: expected a regular file", path)
+	case err != nil:
+		return Settings{}, fmt.Errorf("read config: %w", err)
 	}
-	var seen [len(keys)]bool
-	for index, raw := range strings.Split(strings.TrimPrefix(string(data), "\ufeff"), "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	f := file{Grid: true, Freeze: true, Output: OutputFile}
+	if _, err := kvconf.Unmarshal(data, &f, options); err != nil {
+		var w kvconf.Warning
+		if !errors.As(err, &w) {
+			return Settings{}, fmt.Errorf("config %s: %w", path, err)
 		}
-		key, value, ok := strings.Cut(line, "=")
-		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		slot := -1
-		if ok {
-			slot = slices.Index(keys[:], key)
+		msg := w.Key + " " + w.Msg
+		if w.Key == "" || w.Msg == "unknown key" || strings.HasPrefix(w.Msg, "overrides line") {
+			msg = "expected each of " + knownKeys + " at most once as key = value"
 		}
-		if slot < 0 || seen[slot] {
-			return Settings{}, fmt.Errorf("config %s line %d: expected each of %s at most once as key = value", path, index+1, knownKeys)
-		}
-		seen[slot] = true
-		if err := apply(&settings, key, value); err != nil {
-			return Settings{}, fmt.Errorf("config %s line %d: %w", path, index+1, err)
-		}
+		return Settings{}, fmt.Errorf("config %s line %d: %s", path, w.Line, msg)
 	}
-	return settings, nil
-}
-
-var keys = [...]string{"selector.grid", "selector.freeze", "screenshot.dir", "screenshot.output", "video.dir"}
-
-func apply(s *Settings, key, value string) (err error) {
-	switch key {
-	case "selector.grid":
-		s.Grid, err = onOff(key, value)
-	case "selector.freeze":
-		s.Freeze, err = onOff(key, value)
-	case "screenshot.output":
-		switch out := ScreenshotOutput(value); out {
-		case OutputFile, OutputFileClipboard, OutputClipboard:
-			s.Output = out
-		default:
-			return errors.New("screenshot.output must be file, file+clipboard or clipboard")
-		}
-	case "screenshot.dir":
-		s.ScreenshotDir, err = dir(key, value)
-	case "video.dir":
-		s.VideoDir, err = dir(key, value)
-	}
-	return err
-}
-
-func onOff(key, value string) (bool, error) {
-	switch value {
-	case "on":
-		return true, nil
-	case "off":
-		return false, nil
-	}
-	return false, fmt.Errorf("%s must be on or off", key)
-}
-
-// dir accepts an absolute path or one starting with ~/ (the home directory).
-func dir(key, value string) (string, error) {
-	if value == "" || len(value) > maxPath || strings.IndexByte(value, 0) >= 0 {
-		return "", fmt.Errorf("%s must be a non-empty path", key)
-	}
-	if strings.HasPrefix(value, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil || !filepath.IsAbs(home) {
-			return "", fmt.Errorf("%s: no absolute home directory for ~", key)
-		}
-		value = filepath.Join(home, value[1:])
-	}
-	if !filepath.IsAbs(value) {
-		return "", fmt.Errorf("%s must be an absolute path or start with ~/", key)
-	}
-	return filepath.Clean(value), nil
+	return Settings{bool(f.Grid), bool(f.Freeze), string(f.ShotDir), string(f.VideoDir), f.Output}, nil
 }
