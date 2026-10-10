@@ -1,7 +1,7 @@
 github.com/bnema/go-wayland-bindings v0.1.0 h1:mi2vNa8BB5ZCo/hq/9d6Af01yhqY6QXAZ6pkljFI1xk=
 github.com/bnema/go-wayland-bindings v0.1.0/go.mod h1:eWOgjp9vzZEqxm059q1G9F5NXplmv9UAmrDJiivxVjA=
-github.com/bnema/kvconf v0.1.0 h1:HBtaab447d/rovywZ35t3WUGt6yyi3C6n8Kcs1hHW2Y=
-github.com/bnema/kvconf v0.1.0/go.mod h1:+P2X9I/sLx+Lfir45s9a7WA0GnC22WgKbZWE9LK6lcU=
+github.com/bnema/kvconf v0.1.2 h1:1hDKL9jkQSBdR9dSKbwTONhUUBfJgAdh5vu+yFHOb70=
+github.com/bnema/kvconf v0.1.2/go.mod h1:+P2X9I/sLx+Lfir45s9a7WA0GnC22WgKbZWE9LK6lcU=
 github.com/bnema/neferclient v0.3.0 h1:sEBphi11YpgMOPYHW1OcDtQYA8aD3WSaFILnb8fdp90=
 github.com/bnema/neferclient v0.3.0/go.mod h1:CzZflJIvinLP8u0rYPjdmAnZjl4Ec2cvdnEGvqFO4Yw=
 github.com/bnema/nefergui v0.7.2 h1:9gnYhVlMxpBp+cVE+9Uursc/HwPXe/Li16+m4HL/gkU=
