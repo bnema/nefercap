@@ -61,7 +61,7 @@ func (o *onOff) UnmarshalText(text []byte) error {
 	case "off":
 		*o = false
 	default:
-		return errors.New("must be on or off")
+		return kvconf.ValueError("must be on or off")
 	}
 	return nil
 }
@@ -71,10 +71,10 @@ type dirPath string
 
 func (d *dirPath) UnmarshalText(text []byte) error {
 	if len(text) > maxPath {
-		return errors.New("must be a non-empty path")
+		return kvconf.ValueError("must be a non-empty path")
 	}
 	if string(text) == "~" {
-		return errors.New("must be an absolute path or start with ~/")
+		return kvconf.ValueError("must be an absolute path or start with ~/")
 	}
 	var p kvconf.Path
 	if err := p.UnmarshalText(text); err != nil {
@@ -100,7 +100,7 @@ func Load() (Settings, error) {
 		return settings, nil
 	case errors.Is(err, kvconf.ErrTooLarge):
 		return Settings{}, fmt.Errorf("config %s exceeds %d bytes", path, maxBytes)
-	case err != nil && strings.HasSuffix(err.Error(), "not a regular file"):
+	case errors.Is(err, kvconf.ErrNotRegular):
 		return Settings{}, fmt.Errorf("config %s: expected a regular file", path)
 	case err != nil:
 		return Settings{}, fmt.Errorf("read config: %w", err)
