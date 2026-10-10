@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/bnema/kvconf"
@@ -36,11 +37,17 @@ type Settings struct {
 	Output        ScreenshotOutput
 }
 
-const knownKeys = "selector.grid, selector.freeze, screenshot.dir, screenshot.output, video.dir"
+var keys = [...]string{"selector.grid", "selector.freeze", "screenshot.dir", "screenshot.output", "video.dir"}
 
-// Strict: a line without "=", an unknown key or a duplicate is fatal. A "#"
-// only starts a comment at the start of a line, and values are never unquoted.
-var options = kvconf.Options{Strict: true, Comments: kvconf.CommentLine, RawValues: true, MaxBytes: maxBytes}
+var knownKeys = strings.Join(keys[:], ", ")
+
+// A "#" only starts a comment at the start of a line, and values are never
+// unquoted. Every problem is collected, so Load can fail on the first one in
+// line order: a line without "=", an unknown key, a duplicate or a bad value.
+var options = kvconf.Options{Comments: kvconf.CommentLine, RawValues: true, MaxBytes: maxBytes}
+
+// defaults are the settings of an absent file or key.
+var defaults = Settings{Grid: true, Freeze: true, Output: OutputFile}
 
 // file is the config file as kvconf decodes it, before it becomes Settings.
 type file struct {
@@ -71,7 +78,7 @@ type dirPath string
 
 func (d *dirPath) UnmarshalText(text []byte) error {
 	if len(text) > maxPath {
-		return kvconf.ValueError("must be a non-empty path")
+		return kvconf.ValueError(fmt.Sprintf("must be at most %d bytes", maxPath))
 	}
 	if string(text) == "~" {
 		return kvconf.ValueError("must be an absolute path or start with ~/")
@@ -89,15 +96,14 @@ func (d *dirPath) UnmarshalText(text []byte) error {
 // screenshot selector. Invalid settings fail explicitly rather than silently
 // changing the requested appearance.
 func Load() (Settings, error) {
-	settings := Settings{Grid: true, Freeze: true, Output: OutputFile}
 	path, err := kvconf.DefaultPath("nefercap", "config")
 	if err != nil {
-		return settings, nil
+		return defaults, nil
 	}
 	data, err := kvconf.ReadFile(path, options)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return settings, nil
+		return defaults, nil
 	case errors.Is(err, kvconf.ErrTooLarge):
 		return Settings{}, fmt.Errorf("config %s exceeds %d bytes", path, maxBytes)
 	case errors.Is(err, kvconf.ErrNotRegular):
@@ -105,17 +111,38 @@ func Load() (Settings, error) {
 	case err != nil:
 		return Settings{}, fmt.Errorf("read config: %w", err)
 	}
-	f := file{Grid: true, Freeze: true, Output: OutputFile}
-	if _, err := kvconf.Unmarshal(data, &f, options); err != nil {
-		var w kvconf.Warning
-		if !errors.As(err, &w) {
-			return Settings{}, fmt.Errorf("config %s: %w", path, err)
-		}
-		msg := w.Key + " " + w.Msg
-		if w.Key == "" || w.Msg == "unknown key" || strings.HasPrefix(w.Msg, "overrides line") {
+	entries, syntax, err := kvconf.ParseBytes(data, options)
+	if err != nil {
+		return Settings{}, fmt.Errorf("config %s: %w", path, err)
+	}
+	f := file{Grid: onOff(defaults.Grid), Freeze: onOff(defaults.Freeze), Output: defaults.Output}
+	values, err := kvconf.Decode(entries, &f, options)
+	if err != nil {
+		return Settings{}, fmt.Errorf("config %s: %w", path, err)
+	}
+	// Fail on the first problem in line order. A line without "=" or a
+	// duplicate (from ParseBytes) wins a tie, as a repeated key is wrong
+	// whatever its value.
+	var first *kvconf.Warning
+	generic := false
+	if len(syntax) > 0 {
+		first, generic = &syntax[0], true
+	}
+	if len(values) > 0 && (first == nil || values[0].Line < first.Line) {
+		first, generic = &values[0], !slices.Contains(keys[:], values[0].Key)
+	}
+	if first != nil {
+		msg := first.Key + " " + first.Msg
+		if generic {
 			msg = "expected each of " + knownKeys + " at most once as key = value"
 		}
-		return Settings{}, fmt.Errorf("config %s line %d: %s", path, w.Line, msg)
+		return Settings{}, fmt.Errorf("config %s line %d: %s", path, first.Line, msg)
 	}
-	return Settings{bool(f.Grid), bool(f.Freeze), string(f.ShotDir), string(f.VideoDir), f.Output}, nil
+	return Settings{
+		Grid:          bool(f.Grid),
+		Freeze:        bool(f.Freeze),
+		ScreenshotDir: string(f.ShotDir),
+		VideoDir:      string(f.VideoDir),
+		Output:        f.Output,
+	}, nil
 }
