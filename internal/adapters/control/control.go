@@ -484,11 +484,15 @@ func exchange(ctx context.Context, runtime, req, want string) (bool, error) {
 	} else if uid != euid {
 		return false, fmt.Errorf("%w: socket served by another user", ErrInsecure)
 	}
+	dev, ino := uint64(st.Dev), uint64(st.Ino)
 	if _, err := io.WriteString(uc, req); err != nil {
-		return false, ctxErr(ctx, err)
+		return false, droppedErr(ctx, dirFD, dev, ino, err)
 	}
 	var buf [len(recLine)]byte // the longest reply
 	n, err := io.ReadFull(uc, buf[:len(want)])
+	if n == 0 && err != nil {
+		return false, droppedErr(ctx, dirFD, dev, ino, err)
+	}
 	if err != nil {
 		return false, ctxErr(ctx, err)
 	}
@@ -515,6 +519,36 @@ func dialRetry(ctx context.Context, path string) (net.Conn, error) {
 			return nil, ctx.Err()
 		}
 	}
+}
+
+// droppedErr handles a connection closed before any reply. Close drops open
+// connections, then removes the socket, so an owner shutting down is seen
+// as the socket inode going away: that is no recording, not an error. A
+// server that dropped us and keeps serving yields the original error once
+// ctx ends; a cancelled caller gets context.Canceled.
+func droppedErr(ctx context.Context, dirFD int, dev, ino uint64, err error) error {
+	if !errors.Is(err, io.EOF) && !errors.Is(err, unix.ECONNRESET) && !errors.Is(err, unix.EPIPE) {
+		return ctxErr(ctx, err)
+	}
+	for !socketGone(dirFD, dev, ino) {
+		t := time.NewTimer(5 * time.Millisecond)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return ctx.Err()
+			}
+			return fmt.Errorf("control: server closed the connection: %w", err)
+		}
+	}
+	return nil
+}
+
+func socketGone(dirFD int, dev, ino uint64) bool {
+	var st unix.Stat_t
+	err := unix.Fstatat(dirFD, sockName, &st, unix.AT_SYMLINK_NOFOLLOW)
+	return err == unix.ENOENT || err == nil && (uint64(st.Dev) != dev || uint64(st.Ino) != ino)
 }
 
 func ctxErr(ctx context.Context, err error) error {
