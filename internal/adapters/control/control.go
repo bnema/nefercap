@@ -367,22 +367,20 @@ func (s *Server) serve(c *net.UnixConn) {
 	if !ok {
 		return
 	}
-	var reply string
 	switch {
 	case bytes.Equal(line, []byte(stopLine)):
-		// Coalescing, non-blocking: the ack means the stop was requested,
-		// not that the capture file is finalized.
+		// Ack before delivering: the owner may Close, and so drop this
+		// connection, as soon as it sees the request. The ack means the stop
+		// was requested, not that the capture file is finalized.
+		io.WriteString(c, okLine)
+		// Coalescing, non-blocking.
 		select {
 		case s.reqs <- RequestStop:
 		default:
 		}
-		reply = okLine
 	case bytes.Equal(line, []byte(statusLine)):
-		reply = recLine
-	default:
-		return
+		io.WriteString(c, recLine)
 	}
-	io.WriteString(c, reply)
 }
 
 // readLine reads one newline-terminated request of at most maxRequest bytes.

@@ -531,6 +531,34 @@ func TestStopAckDoesNotBlockOnUnreadRequests(t *testing.T) {
 	}
 }
 
+// The owner may Close as soon as it sees the stop; the client must still get
+// its ack instead of EOF. Timing-dependent: the old order failed here only
+// under load, so this guards the race rather than proving the order.
+func TestStopAckSurvivesImmediateClose(t *testing.T) {
+	setup(t)
+	c := ctx(t)
+	for i := 0; i < 200; i++ {
+		s := listenT(t)
+		closed := make(chan struct{})
+		go func() {
+			defer close(closed)
+			select {
+			case <-s.Requests():
+				s.Close()
+			case <-c.Done():
+			}
+		}()
+		ok, err := Stop(c)
+		require.NoError(t, err, "attempt %d", i)
+		require.True(t, ok)
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("close did not finish")
+		}
+	}
+}
+
 func TestCloseLifecycle(t *testing.T) {
 	rd := setup(t)
 	s, err := Listen()
