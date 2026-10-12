@@ -531,6 +531,85 @@ func TestStopAckDoesNotBlockOnUnreadRequests(t *testing.T) {
 	}
 }
 
+// The owner may Close as soon as it sees the stop; the client must still get
+// its ack instead of EOF. Timing-dependent: the old order failed here only
+// under load, so this guards the race rather than proving the order.
+func TestStopAckSurvivesImmediateClose(t *testing.T) {
+	setup(t)
+	c := ctx(t)
+	for i := 0; i < 200; i++ {
+		s := listenT(t)
+		closed := make(chan struct{})
+		go func() {
+			defer close(closed)
+			select {
+			case <-s.Requests():
+				s.Close()
+			case <-c.Done():
+			}
+		}()
+		ok, err := Stop(c)
+		require.NoError(t, err, "attempt %d", i)
+		require.True(t, ok)
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("close did not finish")
+		}
+	}
+}
+
+// Clients racing the owner's shutdown see either an ack or no recording,
+// never an error.
+func TestStopDuringShutdownIsNotAnError(t *testing.T) {
+	setup(t)
+	c := ctx(t)
+	for i := 0; i < 50; i++ {
+		s := listenT(t)
+		go func() {
+			select {
+			case <-s.Requests():
+				s.Close()
+			case <-c.Done():
+			}
+		}()
+		var wg sync.WaitGroup
+		errs := make(chan error, 8)
+		for j := 0; j < cap(errs); j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := Stop(c)
+				errs <- err
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			require.NoError(t, err, "attempt %d", i)
+		}
+		require.NoError(t, s.Close())
+	}
+}
+
+// A server that drops the client but keeps serving is an error, and a
+// caller cancelled while the client waits gets context.Canceled.
+func TestDroppedByLiveServer(t *testing.T) {
+	setup(t)
+	s, err := listen(os.Getenv("XDG_RUNTIME_DIR"), uint32(os.Geteuid())+1)
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
+
+	_, err = Stop(ctx(t))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "control: server closed the connection")
+
+	c, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	_, err = Stop(c)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestCloseLifecycle(t *testing.T) {
 	rd := setup(t)
 	s, err := Listen()
