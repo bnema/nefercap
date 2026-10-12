@@ -19,6 +19,9 @@ jobs:
       options: --init
     env:
       XDG_RUNTIME_DIR: /tmp/xdg-runtime
+      # mockery v3.8.0 cannot read Go 1.27.2 export data; drop once a fixed
+      # mockery release is out.
+      GOTOOLCHAIN: go1.27.1
     steps:
       # wayland: libwayland-server for the in-process test compositor
       # (NEFERCAP_REQUIRE_WAYLAND=1 fails without it); libxkbcommon is loaded
