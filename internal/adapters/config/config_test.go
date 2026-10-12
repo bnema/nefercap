@@ -182,6 +182,17 @@ func TestLoadRejectsInvalidNewKeys(t *testing.T) {
 		{"screenshot.output = file\n\nscreenshot.output = file", "line 3: expected each of"},
 		{"video.dir = /a\nvideo.dir = /a", "line 2: expected each of"},
 		{"video.output = file", "line 1: expected each of"},
+		// The first problem in line order is reported.
+		{"selector.grid = maybe\nselector.grid = on", "line 1: selector.grid must be on or off"},
+		{"selector.grid = maybe\nnoequals", "line 1: selector.grid must be on or off"},
+		{"selector.grid = maybe\n= x", "line 1: selector.grid must be on or off"},
+		{"selector.grid = maybe\nscreenshot.dir = /a\nscreenshot.dir = /b", "line 1: selector.grid must be on or off"},
+		{"foo = 1\nbar", "line 1: expected each of"},
+		{"selector.grid = on\nselector.grid = maybe", "line 2: expected each of"},
+		// '#' only starts a comment at the start of a line; values stay raw.
+		{"selector.grid = on # c", "line 1: selector.grid must be on or off"},
+		{"screenshot.output = \"file\"", "line 1: screenshot.output must be"},
+		{"# caf\xe9\nselector.grid = on", "not valid UTF-8"},
 	} {
 		t.Run(tc.text, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
