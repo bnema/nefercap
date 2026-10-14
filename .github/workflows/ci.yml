@@ -19,9 +19,6 @@ jobs:
       options: --init
     env:
       XDG_RUNTIME_DIR: /tmp/xdg-runtime
-      # mockery v3.8.0 cannot read Go 1.27.2 export data; drop once a fixed
-      # mockery release is out.
-      GOTOOLCHAIN: go1.27.1
     steps:
       # wayland: libwayland-server for the in-process test compositor
       # (NEFERCAP_REQUIRE_WAYLAND=1 fails without it); libxkbcommon is loaded
@@ -36,8 +33,8 @@ jobs:
           install -d -m 700 "$XDG_RUNTIME_DIR"
       - run: |
           go install github.com/bnema/hexcheck/cmd/hexcheck@v0.3.1
-          go install github.com/vektra/mockery/v3@v3.8.0
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install github.com/vektra/mockery/v3@v3.8.1
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
       - run: make check
       - run: make race
       - run: make mocks-check
