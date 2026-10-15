@@ -11,6 +11,7 @@ import (
 	"github.com/bnema/nefercap/internal/adapters/cli"
 	"github.com/bnema/nefercap/internal/adapters/clipboard"
 	"github.com/bnema/nefercap/internal/adapters/config"
+	"github.com/bnema/nefercap/internal/adapters/flash"
 	"github.com/bnema/nefercap/internal/adapters/png"
 	"github.com/bnema/nefercap/internal/adapters/wayland"
 	"github.com/bnema/nefercap/internal/core"
@@ -50,7 +51,8 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 		return nil
 	}
 	var selection ports.Selection
-	if options.Command == cli.Shot || options.Command == cli.Rec || options.Command == cli.AllInOne {
+	interactive := options.Command == cli.Shot || options.Command == cli.Rec || options.Command == cli.AllInOne
+	if interactive {
 		// Fail on a bad config before anything is shown.
 		settings, loadErr := config.Load()
 		if loadErr != nil {
@@ -102,7 +104,37 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 	if saved && err == nil {
 		log.Info().Msg("capture complete")
 	}
-	return finishCapture(output, selection.Path, saved, err)
+	err = finishCapture(output, selection.Path, saved, err)
+	if err == nil && interactive && selection.Mode == ports.Screenshot {
+		confirmScreenshot(ctx, source, outputs, selection.Target)
+	}
+	return err
+}
+
+// confirmScreenshot flashes the captured area once the screenshot is done. The
+// screenshot already succeeded, so a failed flash is only logged. One budget
+// bounds the workspace lookup and the flash, so a silent compositor cannot
+// keep the process alive.
+func confirmScreenshot(ctx context.Context, source *wayland.Source, outputs []ports.Output, target ports.Target) {
+	ctx, cancel := context.WithTimeout(ctx, flash.Limit)
+	defer cancel()
+	for _, o := range outputs {
+		if o.ID != target.OutputID {
+			continue
+		}
+		area := target.Region
+		if target.WorkspaceID != 0 {
+			area = recordedFrame(ctx, source, target)
+			if ctx.Err() != nil {
+				return // the budget went on the lookup
+			}
+		}
+		if err := flash.Show(ctx, o, area); err != nil {
+			log := logging.For(ctx, "app")
+			log.Warn().Err(err).Msg("screenshot confirmation not shown")
+		}
+		return
+	}
 }
 
 // finishCapture prints the path of a file that exists, whatever error the
