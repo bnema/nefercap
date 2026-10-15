@@ -24,6 +24,8 @@ bind.cmd+p = spawn nefercap
 
 Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm. A badge at the top left shows the mode: `SHOT` or `REC`.
 
+After a screenshot, a green frame briefly flashes over the captured area. It is drawn after the capture, so it never appears in the image.
+
 While recording on NeferWL, a border marks the target and a small **REC / Stop** HUD shows the time. Neither appears in the video. Press the key again, or click Stop, to finish the file. Other compositors show no indicator: the selector says so, and the same key (or `nefercap stop`) finishes the file.
 
 | Input | Action |
