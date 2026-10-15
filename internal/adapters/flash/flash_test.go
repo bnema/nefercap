@@ -69,5 +69,5 @@ func TestSmokeShow(t *testing.T) {
 	}
 	began := time.Now()
 	require.NoError(t, Show(context.Background(), ports.Output{ID: 1, Name: name}, ports.Region{X: 40, Y: 40, Width: 320, Height: 200}))
-	assert.Less(t, time.Since(began), limit+time.Second)
+	assert.Less(t, time.Since(began), Limit+time.Second)
 }

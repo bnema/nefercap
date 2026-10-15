@@ -27,9 +27,9 @@ var styleSheet string
 const (
 	namespace = "nefercap-flash"
 	step      = 30 * time.Millisecond
-	// limit bounds the whole effect, setup included, so a slow compositor or
+	// Limit bounds the whole effect, setup included, so a slow compositor or
 	// GPU never keeps the process alive.
-	limit = 2 * time.Second
+	Limit = 2 * time.Second
 )
 
 // stepClasses are the opacity steps of style.css, from opaque to faint.
@@ -56,7 +56,7 @@ func show(ctx context.Context, output ports.Output, area ports.Region) error {
 	}
 	defer remove()
 
-	child, cancel := context.WithTimeout(ctx, limit)
+	child, cancel := context.WithTimeout(ctx, Limit)
 	wake := make(chan struct{}, 1)
 	var wg sync.WaitGroup
 	wg.Go(func() { ticker(child, wake) })

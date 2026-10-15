@@ -112,8 +112,12 @@ func Run(ctx context.Context, options cli.Options, output io.Writer) (err error)
 }
 
 // confirmScreenshot flashes the captured area once the screenshot is done. The
-// screenshot already succeeded, so a failed flash is only logged.
+// screenshot already succeeded, so a failed flash is only logged. One budget
+// bounds the workspace lookup and the flash, so a silent compositor cannot
+// keep the process alive.
 func confirmScreenshot(ctx context.Context, source *wayland.Source, outputs []ports.Output, target ports.Target) {
+	ctx, cancel := context.WithTimeout(ctx, flash.Limit)
+	defer cancel()
 	for _, o := range outputs {
 		if o.ID != target.OutputID {
 			continue
@@ -121,6 +125,9 @@ func confirmScreenshot(ctx context.Context, source *wayland.Source, outputs []po
 		area := target.Region
 		if target.WorkspaceID != 0 {
 			area = recordedFrame(ctx, source, target)
+			if ctx.Err() != nil {
+				return // the budget went on the lookup
+			}
 		}
 		if err := flash.Show(ctx, o, area); err != nil {
 			log := logging.For(ctx, "app")
