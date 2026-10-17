@@ -172,6 +172,11 @@ func (m *model) scene() scene {
 	if m.label.text != "" && outline {
 		s.label = labelRect(fr, w, h)
 	}
+	if m.hudHidden() {
+		// While a region is drawn only the framing aids stay: dimming,
+		// border, guides and size. The rest has faded out.
+		return s
+	}
 	hw, hh := min(headerWidth(m.header), w), min(headerH, h)
 	s.header = frect{max(w-hw-margin, 0), min(margin, max(h-hh, 0)), hw, hh}
 	s.placeChips(m, w, h)
@@ -186,11 +191,13 @@ func (m *model) scene() scene {
 			s.label.y = y
 		}
 	}
-	s.clearLabelOfBadge(fr, h) // the header move can bring the label back to it
+	if !m.picker.Dragging() { // a fading HUD never pushes the drag's size around
+		s.clearLabelOfBadge(fr, h) // the header move can bring the label back to it
+	}
 	fw := min(footerW, w)
 	fh := min(footerHeight(m.footerText, fw), h)
 	s.footer = frect{(w - fw) / 2, max(h-fh-margin, 0), fw, fh}
-	if m.toast.on {
+	if m.toast.on && m.hud.level == 0 {
 		tw, th := min(toastWidth(m.toast.text), w), min(toastH, h)
 		s.toast = frect{(w - tw) / 2, (h - th) / 2, tw, th}
 	}

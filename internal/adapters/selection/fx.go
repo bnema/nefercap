@@ -21,7 +21,11 @@ const (
 	warnHold   = 1500 * time.Millisecond
 	pulseSpan  = 210 * time.Millisecond
 	pulseExtra = 3.0 // logical pixels added to the border at the pulse start
+	hudSteps   = 4   // HUD fade length in fxSteps: 120 ms each way
 )
+
+// hudClasses are the HUD opacities by fade level; level hudSteps is hidden.
+var hudClasses = [hudSteps]string{"o0", "o3", "o5", "o7"}
 
 // opacityClasses are the toast steps of style.css, from opaque to faint.
 var opacityClasses = [...]string{"o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9"}
@@ -51,6 +55,15 @@ type toast struct {
 type pulse struct {
 	start time.Time
 	on    bool
+}
+
+// hudFade fades the chips, header, footer and toast out while a region is
+// dragged, and back in after. level counts steps away from fully shown.
+type hudFade struct {
+	hiding bool
+	from   int       // level when the current fade started
+	start  time.Time // zero until the first frame of the fade
+	level  int
 }
 
 // animator wakes its overlay every fxStep while an effect runs and sleeps
@@ -140,6 +153,7 @@ func modeToast(mode ports.Mode) string {
 // it never allocates.
 func (m *model) animate(now time.Time) {
 	m.edgeW = edge
+	m.fadeHUD(now)
 	if t := &m.toast; t.on {
 		if t.start.IsZero() {
 			t.start = now
@@ -168,3 +182,36 @@ func (m *model) animate(now time.Time) {
 		}
 	}
 }
+
+// fadeHUD moves the HUD fade one step per fxStep toward hidden while a region
+// is dragged and toward shown otherwise. A reversal starts from the current
+// level, so a short drag never jumps.
+func (m *model) fadeHUD(now time.Time) {
+	h := &m.hud
+	if hide := m.picker.Dragging(); hide != h.hiding {
+		h.hiding, h.from, h.start = hide, h.level, time.Time{}
+	}
+	target := 0
+	if h.hiding {
+		target = hudSteps
+	}
+	if h.level == target {
+		return
+	}
+	if h.start.IsZero() {
+		h.start = now
+		m.anim.extend(now.Add(hudSteps * fxStep))
+	}
+	n := 1 + int(now.Sub(h.start)/fxStep)
+	if target > h.from {
+		h.level = min(h.from+n, target)
+	} else {
+		h.level = max(h.from-n, target)
+	}
+}
+
+// hudClass is the opacity class of the HUD this frame.
+func (m *model) hudClass() string { return hudClasses[min(m.hud.level, hudSteps-1)] }
+
+// hudHidden reports a fully faded HUD, which is not laid out or drawn.
+func (m *model) hudHidden() bool { return m.hud.level >= hudSteps }

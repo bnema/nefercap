@@ -36,19 +36,20 @@ func view(f *nefergui.Frame, m *model) {
 			st.Box(nefergui.Key(edgeKeys[i]), nefergui.Class("edge"), nefergui.Class(mc)).Rect(r.x, r.y, r.w, r.h)
 		}
 	}
-	if n := tag(st, "label", s.label); n.ok {
+	hc := m.hudClass()
+	if n := tag(st, "label", "o0", s.label); n.ok {
 		n.node.Text(m.label.text)
 	}
 	for i, r := range s.modes {
-		chip(st, modeKeys[i], r, s.modeState[i], badgeText(modeChips[i]))
+		chip(st, modeKeys[i], r, s.modeState[i], hc, badgeText(modeChips[i]))
 	}
 	for i, r := range s.kinds {
-		chip(st, kindKeys[i], r, s.kindState[i], targetTexts[i])
+		chip(st, kindKeys[i], r, s.kindState[i], hc, targetTexts[i])
 	}
-	if n := tag(st, "header", s.header); n.ok {
+	if n := tag(st, "header", hc, s.header); n.ok {
 		n.node.Text(m.header)
 	}
-	if n := tag(st, "footer", s.footer); n.ok {
+	if n := tag(st, "footer", hc, s.footer); n.ok {
 		n.node.Text(m.footerText)
 	}
 	if r := s.toast; r.w > 0 && r.h > 0 {
@@ -63,9 +64,9 @@ func view(f *nefergui.Frame, m *model) {
 
 // chip draws one selector chip; state is shot or rec (active, in the mode
 // color), idle, or off (unavailable).
-func chip(st nefergui.Node, key string, r frect, state, text string) {
+func chip(st nefergui.Node, key string, r frect, state, fade, text string) {
 	if r.w > 0 && r.h > 0 {
-		st.Box(nefergui.Key(key), nefergui.Class("tag"), nefergui.Class("chip"), nefergui.Class(state)).Rect(r.x, r.y, r.w, r.h).Text(text)
+		st.Box(nefergui.Key(key), nefergui.Class("tag"), nefergui.Class("chip"), nefergui.Class(state), nefergui.Class(fade)).Rect(r.x, r.y, r.w, r.h).Text(text)
 	}
 }
 
@@ -86,11 +87,12 @@ func box(st nefergui.Node, key, class string, r frect) {
 	}
 }
 
-func tag(st nefergui.Node, key string, r frect) tagged {
+// tag draws a text tag; fade is its opacity class (o0 is opaque).
+func tag(st nefergui.Node, key, fade string, r frect) tagged {
 	if r.w <= 0 || r.h <= 0 {
 		return tagged{}
 	}
-	return tagged{st.Box(nefergui.Key(key), nefergui.Class("tag")).Rect(r.x, r.y, r.w, r.h), true}
+	return tagged{st.Box(nefergui.Key(key), nefergui.Class("tag"), nefergui.Class(fade)).Rect(r.x, r.y, r.w, r.h), true}
 }
 
 // Static keys avoid building identity strings per frame.
