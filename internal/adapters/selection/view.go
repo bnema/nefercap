@@ -1,6 +1,8 @@
 package selection
 
 import (
+	"time"
+
 	"github.com/bnema/nefergui"
 
 	"github.com/bnema/nefercap/internal/ports"
@@ -13,6 +15,7 @@ import (
 func view(f *nefergui.Frame, m *model) {
 	m.syncMode() // a Tab on another overlay redraws this one
 	m.refreshFooter()
+	m.animate(time.Now())
 	root := f.Root(nefergui.Class("root"))
 	st := root.Stack(nefergui.Class("scene"))
 	if drawsBackdrop(m) {
@@ -27,20 +30,42 @@ func view(f *nefergui.Frame, m *model) {
 	for i, r := range s.grid {
 		box(st, gridKeys[i], "grid", r)
 	}
+	mc := modeClass(m.mode)
 	for i, r := range s.edges {
-		box(st, edgeKeys[i], "edge", r)
+		if r.w > 0 && r.h > 0 {
+			st.Box(nefergui.Key(edgeKeys[i]), nefergui.Class("edge"), nefergui.Class(mc)).Rect(r.x, r.y, r.w, r.h)
+		}
 	}
 	if n := tag(st, "label", s.label); n.ok {
 		n.node.Text(m.label.text)
 	}
-	if n := tag(st, "badge", s.badge); n.ok {
-		n.node.Text(badgeText(m.mode))
+	for i, r := range s.modes {
+		chip(st, modeKeys[i], r, s.modeState[i], badgeText(modeChips[i]))
+	}
+	for i, r := range s.kinds {
+		chip(st, kindKeys[i], r, s.kindState[i], targetTexts[i])
 	}
 	if n := tag(st, "header", s.header); n.ok {
 		n.node.Text(m.header)
 	}
 	if n := tag(st, "footer", s.footer); n.ok {
 		n.node.Text(m.footerText)
+	}
+	if r := s.toast; r.w > 0 && r.h > 0 {
+		kind := "info"
+		if m.toast.warn {
+			kind = "warn"
+		}
+		st.Box(nefergui.Key("toast"), nefergui.Class("toast"), nefergui.Class(kind),
+			nefergui.Class(opacityClasses[m.toast.step])).Rect(r.x, r.y, r.w, r.h).Text(m.toast.text)
+	}
+}
+
+// chip draws one selector chip; state is shot or rec (active, in the mode
+// color), idle, or off (unavailable).
+func chip(st nefergui.Node, key string, r frect, state, text string) {
+	if r.w > 0 && r.h > 0 {
+		st.Box(nefergui.Key(key), nefergui.Class("tag"), nefergui.Class("chip"), nefergui.Class(state)).Rect(r.x, r.y, r.w, r.h).Text(text)
 	}
 }
 
@@ -73,4 +98,6 @@ var (
 	dimKeys  = [4]string{"dim0", "dim1", "dim2", "dim3"}
 	gridKeys = [6]string{"grid0", "grid1", "grid2", "grid3", "grid4", "grid5"}
 	edgeKeys = [4]string{"edge0", "edge1", "edge2", "edge3"}
+	modeKeys = [2]string{"mode-shot", "mode-rec"}
+	kindKeys = [3]string{"kind-region", "kind-monitor", "kind-workspace"}
 )

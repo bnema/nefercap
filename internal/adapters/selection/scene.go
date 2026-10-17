@@ -2,6 +2,7 @@ package selection
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/ports"
@@ -18,6 +19,10 @@ const (
 	headerH          = labelH
 	edge             = 1.0 // thin selection lines
 	margin           = baseFont
+	chipGap          = baseFont * 0.25 // between chips of one group
+	groupGap         = baseFont * 0.75 // between the mode and target groups
+	toastFont        = baseFont * 1.5
+	toastH           = toastFont * 2
 )
 
 // noIndicatorHint is shown in record mode on a compositor that cannot keep a
@@ -69,14 +74,29 @@ func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndica
 	return b.String()
 }
 
-// badgeText is the always-visible mode badge. Both modes share the neutral
-// tag style: a red badge would read as an active recording.
+// badgeText is the label of a mode chip.
 func badgeText(mode ports.Mode) string {
 	if mode == ports.Record {
 		return "REC"
 	}
 	return "SHOT"
 }
+
+// modeClass is the stylesheet class that colors the active mode: cyan for
+// screenshots, coral red for recordings.
+func modeClass(mode ports.Mode) string {
+	if mode == ports.Record {
+		return "rec"
+	}
+	return "shot"
+}
+
+// Chip labels: the key, then the target. Indexes match targetKinds.
+var (
+	modeChips   = [2]ports.Mode{ports.Screenshot, ports.Record}
+	targetKinds = [3]core.PickKind{core.PickRegion, core.PickMonitor, core.PickWorkspace}
+	targetTexts = [3]string{"R Region", "M Monitor", "W Workspace"}
+)
 
 // frect is a float rectangle in surface-local logical pixels, the unit
 // Node.Rect takes.
@@ -90,8 +110,16 @@ type scene struct {
 	grid   [core.GridLineCount]frect // whole-monitor guides: three vertical then three horizontal
 	label  frect
 	header frect
-	badge  frect // top-left mode badge
-	footer frect
+	badge  frect    // the mode chips together, top-left
+	modes  [2]frect // SHOT, REC; only the current one without Tab
+	target frect    // the target chips together
+	kinds  [3]frect // region, monitor, workspace
+	// Chip classes: shot or rec for the active chip, idle, or off for a
+	// workspace this output does not offer.
+	modeState [2]string
+	kindState [3]string
+	toast     frect
+	footer    frect
 }
 
 // highlight returns the rectangle to outline and whether the rest is dimmed.
@@ -130,11 +158,12 @@ func (m *model) scene() scene {
 		s.dim[0] = frect{0, 0, w, h}
 	}
 	if outline {
+		e := min(max(m.edgeW, edge), fr.w/2, fr.h/2)
 		s.edges = [4]frect{
-			{fr.x, fr.y, fr.w, edge},
-			{fr.x, fr.y + fr.h - edge, fr.w, edge},
-			{fr.x, fr.y, edge, fr.h},
-			{fr.x + fr.w - edge, fr.y, edge, fr.h},
+			{fr.x, fr.y, fr.w, e},
+			{fr.x, fr.y + fr.h - e, fr.w, e},
+			{fr.x, fr.y, e, fr.h},
+			{fr.x + fr.w - e, fr.y, e, fr.h},
 		}
 	}
 	if m.grid {
@@ -145,7 +174,8 @@ func (m *model) scene() scene {
 	}
 	hw, hh := min(headerWidth(m.header), w), min(headerH, h)
 	s.header = frect{max(w-hw-margin, 0), min(margin, max(h-hh, 0)), hw, hh}
-	s.placeBadge(m.mode, w, h)
+	s.placeChips(m, w, h)
+	s.chipStates(m)
 	// Keep workspace dimensions clear of the output header; region and
 	// monitor labels retain their independent placement.
 	if m.picker.Kind() == core.PickWorkspace && s.label.w > 0 &&
@@ -160,26 +190,111 @@ func (m *model) scene() scene {
 	fw := min(footerW, w)
 	fh := min(footerHeight(m.footerText, fw), h)
 	s.footer = frect{(w - fw) / 2, max(h-fh-margin, 0), fw, fh}
+	if m.toast.on {
+		tw, th := min(toastWidth(m.toast.text), w), min(toastH, h)
+		s.toast = frect{(w - tw) / 2, (h - th) / 2, tw, th}
+	}
 	return s
 }
 
-// placeBadge puts the mode badge top-left; on an output too narrow to share
-// the row with the header it moves below it.
-func (s *scene) placeBadge(mode ports.Mode, w, h float64) {
-	bw, bh := min(headerWidth(badgeText(mode)), w), min(headerH, h)
-	s.badge = frect{min(margin, max(w-bw, 0)), min(margin, max(h-bh, 0)), bw, bh}
-	if overlaps(s.badge, s.header) && s.header.y+s.header.h+tagPadY+bh <= h {
-		s.badge.y = s.header.y + s.header.h + tagPadY
+// placeChips puts the mode chips top-left and the target chips after them,
+// or below them when the row would reach the output header. On an output too
+// narrow to share the row with the header, both move below it.
+func (s *scene) placeChips(m *model, w, h float64) {
+	ch := min(headerH, h)
+	x := 0.0
+	for i, mode := range modeChips {
+		if !m.toggle && mode != m.mode {
+			continue
+		}
+		cw := headerWidth(badgeText(mode))
+		if x > 0 {
+			x += chipGap
+		}
+		s.modes[i] = frect{x, 0, cw, ch}
+		x += cw
 	}
-	s.clearLabelOfBadge(frect{}, h)
+	s.badge = frect{0, 0, x, ch}
+	x = 0
+	for i, text := range targetTexts {
+		cw := headerWidth(text)
+		if x > 0 {
+			x += chipGap
+		}
+		s.kinds[i] = frect{x, 0, cw, ch}
+		x += cw
+	}
+	s.target = frect{0, 0, x, ch}
+
+	top := min(margin, max(h-ch, 0))
+	left := min(margin, max(w-s.badge.w, 0))
+	row := frect{left, top, s.badge.w + groupGap + s.target.w, ch}
+	below := overlaps(row, s.header) || row.x+row.w > w
+	if below && overlaps(frect{left, top, s.badge.w, ch}, s.header) && s.header.y+s.header.h+tagPadY+ch <= h {
+		top = s.header.y + s.header.h + tagPadY
+		row.y = top
+		below = row.x+row.w > w
+	}
+	s.badge.x, s.badge.y = left, top
+	s.target.x, s.target.y = left+s.badge.w+groupGap, top
+	if below {
+		s.target.x, s.target.y = left, top+ch+tagPadY
+	}
+	for i := range s.modes {
+		place(&s.modes[i], s.badge, w, h)
+	}
+	for i := range s.kinds {
+		place(&s.kinds[i], s.target, w, h)
+	}
+	s.badge.w = min(s.badge.w, max(w-s.badge.x, 0))
+	s.target.w = min(s.target.w, max(w-s.target.x, 0))
 }
 
-// clearLabelOfBadge moves a size label that meets the badge below it, inside
-// the highlighted rectangle fr when known.
+// chipStates colors the current mode and target with the mode class.
+func (s *scene) chipStates(m *model) {
+	mc := modeClass(m.mode)
+	for i, mode := range modeChips {
+		s.modeState[i] = "idle"
+		if mode == m.mode {
+			s.modeState[i] = mc
+		}
+	}
+	_, _, workspace := m.picker.Workspace()
+	for i, kind := range targetKinds {
+		switch {
+		case kind == m.picker.Kind():
+			s.kindState[i] = mc
+		case kind == core.PickWorkspace && !workspace:
+			s.kindState[i] = "off"
+		default:
+			s.kindState[i] = "idle"
+		}
+	}
+}
+
+// place moves a chip laid out from the origin into its group and clips it to
+// the surface; a chip with no room left gets no area and is not drawn.
+func place(c *frect, group frect, w, h float64) {
+	if c.w == 0 {
+		return
+	}
+	c.x += group.x
+	c.y = group.y
+	c.w = min(c.w, max(w-c.x, 0))
+	c.h = min(c.h, max(h-c.y, 0))
+	if c.w <= 0 || c.h <= 0 {
+		*c = frect{}
+	}
+}
+
+// clearLabelOfBadge moves a size label that meets the chips below them,
+// inside the highlighted rectangle fr when known.
 func (s *scene) clearLabelOfBadge(fr frect, h float64) {
-	if s.label.w > 0 && overlaps(s.label, s.badge) {
-		if y := max(fr.y+tagPadY, s.badge.y+s.badge.h+tagPadY); y+s.label.h <= h {
-			s.label.y = y
+	for _, r := range [2]frect{s.badge, s.target} {
+		if s.label.w > 0 && r.w > 0 && overlaps(s.label, r) {
+			if y := max(fr.y+tagPadY, r.y+r.h+tagPadY); y+s.label.h <= h {
+				s.label.y = y
+			}
 		}
 	}
 }
@@ -208,7 +323,12 @@ func footerHeight(text string, width float64) float64 {
 
 // headerWidth is a monospace estimate of the header text plus padding.
 func headerWidth(text string) float64 {
-	return float64(len([]rune(text)))*baseFont*0.625 + 2*tagPadX
+	return float64(utf8.RuneCountInString(text))*baseFont*0.625 + 2*tagPadX
+}
+
+// toastWidth is the same estimate at the toast's larger font.
+func toastWidth(text string) float64 {
+	return float64(utf8.RuneCountInString(text))*toastFont*0.625 + 4*tagPadX
 }
 
 // labelRect places the size label above the region, or just inside it when

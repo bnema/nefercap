@@ -22,7 +22,9 @@ Bind `nefercap` to a key in your compositor. For NeferWL:
 bind.cmd+p = spawn nefercap
 ```
 
-Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm. A badge at the top left shows the mode: `SHOT` or `REC`.
+Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm.
+
+Chips at the top left show the mode (`SHOT` or `REC`) and the target (`R Region`, `M Monitor`, `W Workspace`). The active ones and the selection border take the mode color: cyan for screenshots, red for recordings. Each key press also shows a short toast in the center and pulses the border.
 
 After a screenshot, a green frame briefly flashes over the captured area. It is drawn after the capture, so it never appears in the image.
 
@@ -32,7 +34,7 @@ While recording on NeferWL, a border marks the target and a small **REC / Stop**
 | --- | --- |
 | Drag | Capture a rectangle |
 | Click | Capture the monitor |
-| `W`, then Enter | Capture the current workspace |
+| `W`, then Enter | Capture the current workspace, or the monitor (with a warning) when there is none |
 | `M`, then Enter | Capture the monitor |
 | `1`–`9` | Pick that monitor |
 | `R` | Back to rectangle selection |

@@ -234,8 +234,9 @@ func TestWorkspaceOnlyWhenRealAndOnThisOutput(t *testing.T) {
 	none, _ := newBareModel()
 	none.resize(1920, 1080, 1)
 	none.input(key("w"))
-	none.input(key("Return"))
-	assert.Equal(t, endNone, none.end, "W without workspace metadata must do nothing")
+	assert.Equal(t, core.PickMonitor, none.picker.Kind(), "W without workspace metadata falls back to the monitor")
+	assert.True(t, none.toast.warn)
+	assert.Equal(t, toastNoWS, none.toast.text)
 
 	m, _ := newBareModel()
 	m.setWorkspaces(ws)
@@ -269,7 +270,9 @@ func TestOnlyTheActiveWorkspaceIsOffered(t *testing.T) {
 	assert.False(t, ok, "a workspace that is not displayed is never offered")
 	hidden.input(key("w"))
 	hidden.input(key("Return"))
-	assert.Equal(t, endNone, hidden.end)
+	require.Equal(t, endAccepted, hidden.end)
+	res, _, _ := hidden.sess.outcome(context.Background())
+	assert.Equal(t, core.PickMonitor, res.Kind, "a hidden workspace is never captured; W falls back to the monitor")
 }
 
 func TestSelectionConversionUsesCoreTarget(t *testing.T) {
@@ -440,7 +443,10 @@ func TestSceneGeometry(t *testing.T) {
 	assert.Equal(t, frect{100, 249, 200, 1}, s.edges[1])
 	assert.Equal(t, frect{100, 50, 1, 200}, s.edges[2])
 	assert.Equal(t, frect{299, 50, 1, 200}, s.edges[3])
-	assert.Equal(t, frect{100, 50 - labelH - 4, labelW, labelH}, s.label)
+	// Above the region the label would meet the chips, so it moves below them
+	// and inside the region.
+	assert.Equal(t, frect{100, max(50+tagPadY, s.target.y+s.target.h+tagPadY), labelW, labelH}, s.label)
+	assert.False(t, overlaps(s.label, s.target))
 	// Dim strips and region tile the output exactly.
 	area := 200.0 * 200.0
 	for _, d := range s.dim {
@@ -748,7 +754,8 @@ func TestInputReportsOnlyVisibleChanges(t *testing.T) {
 	repeat.Repeat = true
 	assert.False(t, m.input(repeat), "repeat")
 	assert.False(t, m.input(key("q")), "unknown key")
-	assert.False(t, m.input(key("w")), "W without a workspace")
+	assert.True(t, m.input(key("w")), "W without a workspace warns and falls back")
+	m = newTestModel(t)
 
 	assert.False(t, m.input(button(100, 50, true)), "a press alone changes nothing visible")
 	assert.False(t, m.input(motion(102, 51)), "below the drag threshold")
@@ -760,9 +767,8 @@ func TestInputReportsOnlyVisibleChanges(t *testing.T) {
 	m = newTestModel(t)
 	assert.True(t, m.input(key("g")), "grid toggles")
 	assert.True(t, m.input(key("m")), "monitor outline")
-	assert.False(t, m.input(key("m")), "already chosen")
+	assert.True(t, m.input(key("m")), "an already chosen target is confirmed again")
 	assert.True(t, m.input(key("r")))
-	assert.False(t, m.input(key("r")))
 }
 
 func TestInputClampedEdgeMotionIsNotVisible(t *testing.T) {

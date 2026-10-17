@@ -169,15 +169,24 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 		m.setWorkspaces(s.workspaces)
 		m.noIndicator = s.noIndicator
 		m.backdrop = s.backdrops[outputs[i].ID]
+		// Every overlay has a wake: Tab on another overlay and the key
+		// effects both redraw through it.
+		m.wake, m.anim = make(chan struct{}, 1), newAnimator()
 		if s.toggle {
-			m.toggle, m.wake = true, make(chan struct{}, 1)
+			m.toggle = true
 			sess.wakes = append(sess.wakes, m.wake)
 		}
 		m.footerText = footerText(m.mode, m.footerKind, m.footerWorkspace, m.toggle, m.noIndicator)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sess.runEnded(ctx, outputs[i].Name, run(child, sheet, m))
+			fx, stop := context.WithCancel(child)
+			var anim sync.WaitGroup
+			anim.Go(func() { m.anim.run(fx, m.wake) })
+			err := run(child, sheet, m)
+			stop()
+			anim.Wait()
+			sess.runEnded(ctx, outputs[i].Name, err)
 		}()
 	}
 	wg.Wait()
@@ -198,7 +207,7 @@ func run(ctx context.Context, sheet string, m *model) error {
 	return layerui.Run(ctx, layerui.Config{
 		Layer:    layerConfig(m.outputs[m.index].Name, kb),
 		Styles:   sheet,
-		Wake:     m.wake, // nil without toggle: never ready
+		Wake:     m.wake,
 		OnResize: m.resize,
 		OnInput:  m.input,
 	}, m, view)

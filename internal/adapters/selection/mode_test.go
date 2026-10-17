@@ -68,12 +68,6 @@ func TestTabSharedAcrossOverlaysAndResult(t *testing.T) {
 	assert.Equal(t, ports.VideoSettings{}, sel.Video)
 }
 
-func TestBadgeClassAndText(t *testing.T) {
-	assert.Equal(t, "SHOT", badgeText(ports.Screenshot))
-	assert.Equal(t, "REC", badgeText(ports.Record))
-	assert.NotContains(t, styleSheet, "box.rec", "the rec badge keeps the neutral tag style")
-}
-
 func TestBadgeTopLeftAndClearOfHeaderAndLabel(t *testing.T) {
 	for _, w := range []int{1920, 640, 320, 200, 100, 40} {
 		for _, mode := range []ports.Mode{ports.Screenshot, ports.Record} {
