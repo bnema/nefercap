@@ -9,10 +9,10 @@ box.backdrop { overflow: hidden; }
 box.backdrop image { width: 100%; height: 100%; }
 box.dim { background-color: rgba(0, 0, 0, 0.5); }
 box.edge { background-color: #4fd1a5; }
-/* Mode colors: cyan for screenshots, amber for recordings. Never red, which
-   would read as a recording in progress. */
+/* Mode colors: cyan for screenshots, coral red for recordings. Amber is kept
+   for warnings. */
 box.edge.shot { background-color: #38bdf8; }
-box.edge.rec { background-color: #f5a524; }
+box.edge.rec { background-color: #ef5350; }
 box.grid { background-color: #808080; }
 box.tag {
   display: flex; flex-direction: row; justify-content: center; align-items: center;
@@ -24,7 +24,7 @@ box.tag {
 box.chip.idle { color: #8b949e; }
 box.chip.off { color: #484f58; }
 box.chip.shot { background-color: #38bdf8; color: #0d1014; }
-box.chip.rec { background-color: #f5a524; color: #0d1014; }
+box.chip.rec { background-color: #ef5350; color: #0d1014; }
 /* Centered toast confirming a key, faded out by the o* steps. */
 box.toast {
   display: flex; flex-direction: row; justify-content: center; align-items: center;

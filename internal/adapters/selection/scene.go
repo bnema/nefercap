@@ -74,8 +74,7 @@ func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndica
 	return b.String()
 }
 
-// badgeText is the label of a mode chip. No mode is red: red would read as
-// an active recording.
+// badgeText is the label of a mode chip.
 func badgeText(mode ports.Mode) string {
 	if mode == ports.Record {
 		return "REC"
@@ -84,7 +83,7 @@ func badgeText(mode ports.Mode) string {
 }
 
 // modeClass is the stylesheet class that colors the active mode: cyan for
-// screenshots, amber for recordings.
+// screenshots, coral red for recordings.
 func modeClass(mode ports.Mode) string {
 	if mode == ports.Record {
 		return "rec"

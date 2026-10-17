@@ -24,7 +24,7 @@ bind.cmd+p = spawn nefercap
 
 Press the key: a selector covers every monitor. Pick what to capture, press **Tab** to switch between screenshot and recording, then confirm.
 
-Chips at the top left show the mode (`SHOT` or `REC`) and the target (`R Region`, `M Monitor`, `W Workspace`). The active ones and the selection border take the mode color: cyan for screenshots, amber for recordings. Each key press also shows a short toast in the center and pulses the border.
+Chips at the top left show the mode (`SHOT` or `REC`) and the target (`R Region`, `M Monitor`, `W Workspace`). The active ones and the selection border take the mode color: cyan for screenshots, red for recordings. Each key press also shows a short toast in the center and pulses the border.
 
 After a screenshot, a green frame briefly flashes over the captured area. It is drawn after the capture, so it never appears in the image.
 
