@@ -197,7 +197,7 @@ func (m *model) scene() scene {
 	fw := min(footerW, w)
 	fh := min(footerHeight(m.footerText, fw), h)
 	s.footer = frect{(w - fw) / 2, max(h-fh-margin, 0), fw, fh}
-	if m.toast.on && m.hud.level == 0 {
+	if m.toast.on {
 		tw, th := min(toastWidth(m.toast.text), w), min(toastH, h)
 		s.toast = frect{(w - tw) / 2, (h - th) / 2, tw, th}
 	}

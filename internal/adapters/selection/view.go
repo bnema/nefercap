@@ -58,7 +58,7 @@ func view(f *nefergui.Frame, m *model) {
 			kind = "warn"
 		}
 		st.Box(nefergui.Key("toast"), nefergui.Class("toast"), nefergui.Class(kind),
-			nefergui.Class(opacityClasses[m.toast.step])).Rect(r.x, r.y, r.w, r.h).Text(m.toast.text)
+			nefergui.Class(m.toastClass())).Rect(r.x, r.y, r.w, r.h).Text(m.toast.text)
 	}
 }
 

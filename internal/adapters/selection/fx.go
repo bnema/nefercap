@@ -24,8 +24,8 @@ const (
 	hudSteps   = 4   // HUD fade length in fxSteps: 120 ms each way
 )
 
-// hudClasses are the HUD opacities by fade level; level hudSteps is hidden.
-var hudClasses = [hudSteps]string{"o0", "o3", "o5", "o7"}
+// hudOpacity indexes opacityClasses by HUD fade level; level hudSteps is hidden.
+var hudOpacity = [hudSteps]int{0, 3, 5, 7}
 
 // opacityClasses are the toast steps of style.css, from opaque to faint.
 var opacityClasses = [...]string{"o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9"}
@@ -210,8 +210,14 @@ func (m *model) fadeHUD(now time.Time) {
 	}
 }
 
+// hudStep is the opacityClasses index of the HUD this frame.
+func (m *model) hudStep() int { return hudOpacity[min(m.hud.level, hudSteps-1)] }
+
 // hudClass is the opacity class of the HUD this frame.
-func (m *model) hudClass() string { return hudClasses[min(m.hud.level, hudSteps-1)] }
+func (m *model) hudClass() string { return opacityClasses[m.hudStep()] }
+
+// toastClass is the fainter of the toast's own fade and the HUD fade.
+func (m *model) toastClass() string { return opacityClasses[max(m.toast.step, m.hudStep())] }
 
 // hudHidden reports a fully faded HUD, which is not laid out or drawn.
 func (m *model) hudHidden() bool { return m.hud.level >= hudSteps }
