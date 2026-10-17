@@ -189,6 +189,34 @@ func TestEffectsAllocations(t *testing.T) {
 		now = now.Add(time.Second)
 	})
 	assert.Zero(t, n, "toasts, pulses and their frames allocate nothing")
+
+	// A full HUD fade out and back in, with a toast fading along, allocates
+	// nothing per frame. The fade restarts every run, so warm-up does not
+	// leave it settled.
+	m.input(button(100, 100, true))
+	m.input(motion(400, 300))
+	n = testing.AllocsPerRun(100, func() {
+		m.hud = hudFade{}
+		m.showToast(toastMonitor, targetHold, false)
+		for i := range hudSteps + 1 {
+			m.animate(now.Add(time.Duration(i) * fxStep))
+			_ = m.scene()
+			_, _ = m.hudClass(), m.toastClass()
+		}
+		m.hud.hiding = false // as after a rejected release
+		for i := range hudSteps + 1 {
+			m.animate(now.Add(time.Second + time.Duration(i)*fxStep))
+			_ = m.scene()
+			_, _ = m.hudClass(), m.toastClass()
+		}
+		m.hud.hiding = true
+		now = now.Add(2 * time.Second)
+	})
+	assert.Zero(t, n, "HUD fade frames allocate nothing")
+	m.input(motion(102, 102))
+	m.input(button(102, 102, false))
+	m.animate(now.Add(time.Minute))
+	m.animate(now.Add(2 * time.Minute))
 	assert.False(t, m.toast.on)
 	assert.False(t, m.pulse.on)
 
@@ -255,4 +283,100 @@ func TestChipStatesFollowModeAndTarget(t *testing.T) {
 	s = m.scene()
 	assert.Equal(t, [2]string{"idle", "rec"}, s.modeState)
 	assert.Equal(t, [3]string{"idle", "rec", "off"}, s.kindState)
+}
+
+func TestDragFadesTheHUDOutAndBackIn(t *testing.T) {
+	m := toggleModel(t, ports.Screenshot, true)
+	m.grid = true
+	m.layoutGrid()
+	t0 := time.Unix(1000, 0)
+	m.input(button(100, 100, true))
+	m.animate(t0)
+	assert.Equal(t, 0, m.hud.level, "a press alone keeps the HUD")
+
+	m.input(motion(400, 300))
+	require.True(t, m.picker.Dragging())
+	m.input(key("Tab")) // its toast fades along with the HUD
+	levels := []int{}
+	for i := range hudSteps + 1 {
+		m.animate(t0.Add(time.Duration(i) * fxStep))
+		levels = append(levels, m.hud.level)
+	}
+	assert.Equal(t, []int{1, 2, 3, 4, 4}, levels, "one step per frame, then hidden")
+	s := m.scene()
+	assert.True(t, m.hudHidden())
+	assert.Equal(t, frect{}, s.header)
+	assert.Equal(t, frect{}, s.footer)
+	assert.Equal(t, frect{}, s.toast)
+	assert.Equal(t, [2]frect{}, s.modes)
+	assert.Equal(t, [3]frect{}, s.kinds)
+	assert.Greater(t, s.edges[0].w, 0.0, "the border stays")
+	assert.Greater(t, s.dim[0].w, 0.0, "the dimming stays")
+	assert.Greater(t, s.label.w, 0.0, "the size stays")
+	assert.Greater(t, s.grid[0].h, 0.0, "the guides stay")
+
+	// Releasing a too-small drag keeps picking: the HUD fades back in.
+	m.input(motion(103, 103))
+	m.input(button(103, 103, false))
+	require.Equal(t, endNone, m.end)
+	t1 := t0.Add(time.Second)
+	levels = levels[:0]
+	for i := range hudSteps + 1 {
+		m.animate(t1.Add(time.Duration(i) * fxStep))
+		levels = append(levels, m.hud.level)
+	}
+	assert.Equal(t, []int{3, 2, 1, 0, 0}, levels)
+	assert.Greater(t, m.scene().header.w, 0.0)
+	assert.Equal(t, "o0", m.hudClass())
+}
+
+func TestShortDragReversesTheFadeWithoutAJump(t *testing.T) {
+	m := newTestModel(t)
+	t0 := time.Unix(1000, 0)
+	m.input(button(100, 100, true))
+	m.input(motion(400, 300))
+	m.animate(t0)
+	m.animate(t0.Add(fxStep))
+	require.Equal(t, 2, m.hud.level)
+	m.input(motion(103, 103))
+	m.input(button(103, 103, false))
+	m.animate(t0.Add(2 * fxStep))
+	assert.Equal(t, 1, m.hud.level, "fades back from where it was")
+}
+
+func TestFadingHUDKeepsTheDragLabelInPlace(t *testing.T) {
+	m := toggleModel(t, ports.Screenshot, true)
+	m.input(button(100, 50, true))
+	m.input(motion(300, 250))
+	m.animate(time.Unix(1000, 0)) // level 1: chips still drawn
+	assert.Equal(t, frect{100, 50 - labelH - 4, labelW, labelH}, m.scene().label)
+}
+
+func TestToastFadesWithTheHUD(t *testing.T) {
+	m := newTestModel(t)
+	t0 := time.Unix(1000, 0)
+	m.input(key("m"))
+	m.animate(t0)
+	require.Equal(t, "o0", m.toastClass())
+
+	m.input(button(100, 100, true))
+	m.input(motion(400, 300))
+	classes := []string{}
+	for i := range hudSteps - 1 {
+		m.animate(t0.Add(time.Duration(i) * fxStep))
+		classes = append(classes, m.toastClass())
+		assert.Greater(t, m.scene().toast.w, 0.0, "drawn until the HUD is gone")
+	}
+	assert.Equal(t, []string{"o3", "o5", "o7"}, classes)
+	m.animate(t0.Add((hudSteps - 1) * fxStep))
+	assert.True(t, m.hudHidden())
+	assert.Equal(t, frect{}, m.scene().toast)
+
+	m.input(motion(103, 103))
+	m.input(button(103, 103, false))
+	t1 := t0.Add(5 * fxStep)
+	m.animate(t1)
+	assert.Equal(t, "o7", m.toastClass(), "comes back faint, not at once")
+	m.animate(t1.Add(fxStep))
+	assert.Equal(t, "o5", m.toastClass())
 }

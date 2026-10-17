@@ -68,6 +68,7 @@ type model struct {
 	// triggered effects so input reports them as a visible change.
 	toast toast
 	pulse pulse
+	hud   hudFade
 	fx    uint32
 	edgeW float64   // border width this frame; edge outside a pulse
 	anim  *animator // nil in tests: effects still advance, nothing wakes
