@@ -3,6 +3,7 @@ package selection
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -172,19 +173,25 @@ func TestEffectsAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("the race detector adds allocations")
 	}
-	// A target change rebuilds the footer legend once (covered by the footer
-	// tests); confirming the same target only replays the effects.
+	// Each run triggers both effects once, then draws them through the hold,
+	// the fade, the pulse decay and the end, like the frames of one key press.
 	m := newTestModel(t)
-	m.input(key("w")) // falls back to the monitor
+	m.input(key("w")) // falls back to the monitor: later presses keep the legend
+	steps := [...]time.Duration{0, fxStep, pulseSpan / 2, pulseSpan, warnHold, warnHold + 4*fxStep, warnHold + toastFade}
 	now := time.Unix(1000, 0)
 	n := testing.AllocsPerRun(100, func() {
-		m.input(key("m"))
 		m.input(key("w"))
-		now = now.Add(fxStep)
-		m.animate(now)
-		_ = m.scene()
+		start := now
+		for _, d := range steps {
+			m.animate(start.Add(d))
+			_ = m.scene()
+		}
+		now = now.Add(time.Second)
 	})
 	assert.Zero(t, n, "toasts, pulses and their frames allocate nothing")
+	assert.False(t, m.toast.on)
+	assert.False(t, m.pulse.on)
+
 	n = testing.AllocsPerRun(100, func() {
 		m.input(key("r"))
 		m.input(key("m"))
@@ -195,39 +202,40 @@ func TestEffectsAllocations(t *testing.T) {
 }
 
 func TestAnimatorWakesOnlyWhileEffectsRun(t *testing.T) {
-	a := newAnimator()
-	wake := make(chan struct{}, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // a failed assertion must not leak the animator
-	done := make(chan struct{})
-	go func() { a.run(ctx, wake); close(done) }()
+	synctest.Test(t, func(t *testing.T) {
+		a := newAnimator()
+		wake := make(chan struct{}, 1)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { a.run(ctx, wake); close(done) }()
 
-	select {
-	case <-wake:
-		t.Fatal("idle animator woke the overlay")
-	case <-time.After(3 * fxStep):
-	}
-	a.extend(time.Now().Add(2 * fxStep))
-	select {
-	case <-wake:
-	case <-time.After(time.Second):
-		t.Fatal("running effect did not wake the overlay")
-	}
-	time.Sleep(5 * fxStep)
-	for len(wake) > 0 {
+		time.Sleep(10 * fxStep)
+		synctest.Wait()
+		assert.Empty(t, wake, "an idle animator never wakes the overlay")
+
+		a.extend(time.Now().Add(2 * fxStep))
+		time.Sleep(fxStep)
+		synctest.Wait()
+		require.Len(t, wake, 1, "a running effect wakes the overlay")
 		<-wake
-	}
-	select {
-	case <-wake:
-		t.Fatal("ended effect kept waking the overlay")
-	case <-time.After(3 * fxStep):
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("animator did not stop with its context")
-	}
+
+		time.Sleep(5 * fxStep) // past the end and its final frame
+		synctest.Wait()
+		for len(wake) > 0 {
+			<-wake
+		}
+		time.Sleep(10 * fxStep)
+		synctest.Wait()
+		assert.Empty(t, wake, "an ended effect stops waking the overlay")
+
+		cancel()
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("animator did not stop with its context")
+		}
+	})
 }
 
 func TestNilAnimatorIsSafe(t *testing.T) {
@@ -236,6 +244,8 @@ func TestNilAnimatorIsSafe(t *testing.T) {
 }
 
 func TestChipStatesFollowModeAndTarget(t *testing.T) {
+	assert.Equal(t, "SHOT", badgeText(ports.Screenshot))
+	assert.Equal(t, "REC", badgeText(ports.Record))
 	m := toggleModel(t, ports.Screenshot, true)
 	s := m.scene()
 	assert.Equal(t, [2]string{"shot", "idle"}, s.modeState)

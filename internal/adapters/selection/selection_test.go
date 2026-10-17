@@ -443,8 +443,9 @@ func TestSceneGeometry(t *testing.T) {
 	assert.Equal(t, frect{100, 249, 200, 1}, s.edges[1])
 	assert.Equal(t, frect{100, 50, 1, 200}, s.edges[2])
 	assert.Equal(t, frect{299, 50, 1, 200}, s.edges[3])
-	// Above the region the label would meet the chips, so it moves below them.
-	assert.Equal(t, frect{100, s.target.y + s.target.h + tagPadY, labelW, labelH}, s.label)
+	// Above the region the label would meet the chips, so it moves below them
+	// and inside the region.
+	assert.Equal(t, frect{100, max(50+tagPadY, s.target.y+s.target.h+tagPadY), labelW, labelH}, s.label)
 	assert.False(t, overlaps(s.label, s.target))
 	// Dim strips and region tile the output exactly.
 	area := 200.0 * 200.0

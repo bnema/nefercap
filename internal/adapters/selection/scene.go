@@ -249,7 +249,6 @@ func (s *scene) placeChips(m *model, w, h float64) {
 	}
 	s.badge.w = min(s.badge.w, max(w-s.badge.x, 0))
 	s.target.w = min(s.target.w, max(w-s.target.x, 0))
-	s.clearLabelOfBadge(frect{}, h)
 }
 
 // chipStates colors the current mode and target with the mode class.
