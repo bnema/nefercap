@@ -75,7 +75,8 @@ Selector keys and mouse:
   click       capture the whole monitor; after w, the current workspace
   r           back to region selection
   m           choose the whole monitor, Enter confirms
-  w           choose the current workspace when known, click or Enter confirms
+  w           choose the current workspace, or the monitor with a warning when
+              none is known; click or Enter confirms
   1..9        pick that whole monitor from any overlay
   g           toggle full-monitor center and thirds guides (on by default)
   Tab         switch shot <-> rec (all-in-one only)

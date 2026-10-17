@@ -63,6 +63,14 @@ type model struct {
 	footerMode      ports.Mode
 	footerWorkspace bool
 	label           label
+
+	// Key feedback: a toast and a border pulse, advanced by animate. fx counts
+	// triggered effects so input reports them as a visible change.
+	toast toast
+	pulse pulse
+	fx    uint32
+	edgeW float64   // border width this frame; edge outside a pulse
+	anim  *animator // nil in tests: effects still advance, nothing wakes
 }
 
 func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
@@ -89,6 +97,8 @@ func modeAfter(base ports.Mode, n uint32) ports.Mode {
 func (m *model) syncMode() {
 	if n := m.sess.toggles.Load(); n != m.seen {
 		m.seen, m.mode = n, modeAfter(m.base, n)
+		m.showToast(modeToast(m.mode), modeHold, false)
+		m.pulseBorder()
 	}
 }
 
@@ -199,11 +209,12 @@ type visible struct {
 	kind     core.PickKind
 	grid     bool
 	status   core.PickStatus
+	fx       uint32
 }
 
 func (m *model) snapshot() visible {
 	r, _ := m.picker.Rect()
-	return visible{r, m.mode == ports.Record, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status()}
+	return visible{r, m.mode == ports.Record, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status(), m.fx}
 }
 
 // input is the OnInput callback. It reports whether the drawn state changed,
@@ -242,11 +253,11 @@ func (m *model) key(name string) {
 	case "Escape":
 		m.picker.Cancel()
 	case "m", "M":
-		m.picker.SelectMonitor()
+		m.selectTarget(core.PickMonitor)
 	case "w", "W":
-		m.picker.SelectWorkspace() // a no-op until a real workspace is supplied
+		m.selectTarget(core.PickWorkspace)
 	case "r", "R":
-		m.picker.SelectRegion()
+		m.selectTarget(core.PickRegion)
 	case "g", "G":
 		m.grid = !m.grid
 	case "Tab":
@@ -263,6 +274,34 @@ func (m *model) key(name string) {
 			m.sess.accept(core.PickResult{OutputID: m.outputs[i].ID, Kind: core.PickMonitor}, m.mode)
 		}
 	}
+}
+
+// selectTarget switches the picker target and confirms it with a toast and a
+// border pulse, even when the target was already selected. W without a
+// workspace on this output falls back to the monitor and says so. A drag in
+// progress keeps its target and shows nothing.
+func (m *model) selectTarget(kind core.PickKind) {
+	if m.picker.Dragging() {
+		return
+	}
+	if kind == core.PickWorkspace {
+		if _, _, ok := m.picker.Workspace(); !ok {
+			m.picker.SelectMonitor()
+			m.showToast(toastNoWS, warnHold, true)
+			m.pulseBorder()
+			return
+		}
+	}
+	switch kind {
+	case core.PickMonitor:
+		m.picker.SelectMonitor()
+	case core.PickWorkspace:
+		m.picker.SelectWorkspace()
+	default:
+		m.picker.SelectRegion()
+	}
+	m.showToast(targetToast(kind), targetHold, false)
+	m.pulseBorder()
 }
 
 // keyName is the xkb name of the keysyms the selector handles, "" for the
