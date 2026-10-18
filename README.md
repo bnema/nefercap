@@ -73,7 +73,7 @@ video.dir = ~/Videos
 | `screenshot.output` | `file`, `file+clipboard`, `clipboard` | `file` |
 | `video.dir` | absolute or `~/` path | `$XDG_VIDEOS_DIR` |
 
-With `selector.freeze = on`, `nefercap shot` and the all-in-one selector in screenshot mode show the screen as it was when the selector opened, and capture that image. Recording always selects and records the live screen. Rotated outputs, and outputs wider or taller than 4096 pixels, stay live.
+With `selector.freeze = on`, `nefercap shot` and the all-in-one selector in screenshot mode show the screen as it was when the selector opened, and capture that image. Press `F` in the selector to switch between the frozen and the live screen; the screenshot follows what is shown. Recording always selects and records the live screen. Rotated outputs, and outputs wider or taller than 4096 pixels, stay live.
 
 Unknown keys, duplicates and invalid values are reported before the selector opens. Files are private, named with a timestamp, never overwritten, and their path is printed on stdout.
 

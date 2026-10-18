@@ -38,6 +38,8 @@ const (
 	toastMonitor   = "Monitor"
 	toastWorkspace = "Workspace"
 	toastNoWS      = "No workspace found · using monitor"
+	toastFrozen    = "Frozen screen"
+	toastLive      = "Live screen"
 )
 
 // toast is one centered message. start is zero until the first frame draws
@@ -140,6 +142,14 @@ func targetToast(kind core.PickKind) string {
 		return toastWorkspace
 	}
 	return toastRegion
+}
+
+// freezeToast confirms an F press.
+func freezeToast(live bool) string {
+	if live {
+		return toastLive
+	}
+	return toastFrozen
 }
 
 func modeToast(mode ports.Mode) string {

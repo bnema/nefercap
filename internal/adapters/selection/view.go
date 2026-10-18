@@ -70,10 +70,10 @@ func chip(st nefergui.Node, key string, r frect, state, fade, text string) {
 	}
 }
 
-// drawsBackdrop: a screenshot selection shows the frozen screen; a recording
-// selects on the live screen.
+// drawsBackdrop: a screenshot selection shows the frozen screen until F turns
+// it off; a recording selects on the live screen.
 func drawsBackdrop(m *model) bool {
-	return m.backdrop != nil && m.mode == ports.Screenshot && m.w > 0 && m.h > 0
+	return m.backdrop != nil && !m.live && m.mode == ports.Screenshot && m.w > 0 && m.h > 0
 }
 
 type tagged struct {

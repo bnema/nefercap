@@ -79,6 +79,8 @@ Selector keys and mouse:
               none is known; click or Enter confirms
   1..9        pick that whole monitor from any overlay
   g           toggle full-monitor center and thirds guides (on by default)
+  f           switch between the frozen and the live screen (screenshot mode,
+              selector.freeze = on)
   Tab         switch shot <-> rec (all-in-one only)
   Escape      cancel
 
