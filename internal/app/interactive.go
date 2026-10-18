@@ -56,8 +56,8 @@ func chooseInteractive(ctx context.Context, source *wayland.Source, outputs []po
 	if err != nil || !accepted {
 		return ports.Selection{}, false, err
 	}
-	if sel.Mode == ports.Record {
-		source.Thaw() // a recording captures the live screen
+	if sel.Mode == ports.Record || !selector.Frozen() {
+		source.Thaw() // a recording, or F in the selector, captures the live screen
 	} else {
 		source.Thaw(sel.Target.OutputID) // only the chosen output is captured
 	}

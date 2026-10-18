@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"context"
 	"image"
 	"testing"
 
@@ -50,4 +51,94 @@ func TestBackdropDrawnOnlyForScreenshots(t *testing.T) {
 	assert.False(t, drawsBackdrop(m))
 	m.mode, m.backdrop = ports.Screenshot, nil
 	assert.False(t, drawsBackdrop(m))
+}
+
+func frozenModel(t *testing.T, index int, sess *session) *model {
+	t.Helper()
+	m := newModel(ports.Screenshot, testOutputs, index, sess, false)
+	m.backdrop = image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	m.wake = make(chan struct{}, 1)
+	m.resize(1920, 1080, 1)
+	return m
+}
+
+// F switches every overlay between the frozen and the live screen, the
+// footer says what F does next, and the accepted pick records the state.
+func TestFreezeKeyTogglesEveryOverlay(t *testing.T) {
+	sess, _ := testSession()
+	sess.canFreeze = true
+	a, b := frozenModel(t, 0, sess), frozenModel(t, 1, sess)
+	sess.wakes = []chan struct{}{a.wake, b.wake}
+	require.True(t, drawsBackdrop(a))
+	assert.Contains(t, a.footerText, "G grid · F live · Esc cancel")
+
+	assert.True(t, a.input(key("f")), "F redraws")
+	assert.False(t, drawsBackdrop(a))
+	assert.Equal(t, toastLive, a.toast.text)
+	assert.Contains(t, a.footerText, "F freeze")
+	require.Len(t, b.wake, 1, "the other overlay is woken")
+	b.input(motion(1, 1))
+	assert.False(t, drawsBackdrop(b), "the other overlay follows")
+
+	b.input(key("F"))
+	assert.True(t, drawsBackdrop(b))
+	a.input(motion(2, 2))
+	assert.True(t, drawsBackdrop(a))
+
+	a.input(key("f"))
+	a.input(key("m"))
+	a.input(key("Return"))
+	_, ok, err := sess.outcome(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.False(t, sess.acceptedFrozen(), "a pick on the live screen is captured live")
+}
+
+// The live state survives a round trip through record mode, where F is
+// ignored.
+func TestFreezeKeyWithTab(t *testing.T) {
+	sess, _ := testSession()
+	sess.canFreeze = true
+	m := frozenModel(t, 0, sess)
+	m.toggle = true
+	m.input(key("f"))
+	m.input(key("Tab"))
+	require.Equal(t, ports.Record, m.mode)
+	assert.False(t, m.input(key("f")), "F is ignored in record mode")
+	m.input(key("Tab"))
+	assert.False(t, drawsBackdrop(m), "still live after the round trip")
+	assert.Contains(t, m.footerText, "F freeze")
+}
+
+// Like Tab, F allocates only the rebuilt footer text.
+func TestFreezeKeyAllocations(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector adds allocations")
+	}
+	sess, _ := testSession()
+	sess.canFreeze = true
+	m := frozenModel(t, 0, sess)
+	n := testing.AllocsPerRun(100, func() {
+		m.input(key("f"))
+		_ = m.scene()
+	})
+	assert.LessOrEqual(t, n, 1.0, "an F press allocates only the rebuilt legend text")
+}
+
+// Without a frozen screen, or in record mode, F does nothing and is not shown.
+func TestFreezeKeyHiddenWithoutBackdrop(t *testing.T) {
+	m := newTestModel(t)
+	assert.NotContains(t, m.footerText, "F ")
+	assert.False(t, m.input(key("f")))
+
+	sess, _ := testSession()
+	sess.canFreeze = true
+	m = frozenModel(t, 0, sess)
+	m.mode = ports.Record
+	m.refreshFooter()
+	assert.NotContains(t, m.footerText, "F ")
+	assert.False(t, m.input(key("f")))
+	m.input(key("m"))
+	m.input(key("Return"))
+	assert.True(t, sess.acceptedFrozen(), "untouched, the frozen state is kept for the app to thaw")
 }

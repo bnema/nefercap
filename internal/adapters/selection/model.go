@@ -35,6 +35,10 @@ type model struct {
 	// record footer says there is none.
 	noIndicator bool
 	seen        uint32 // session toggles already applied to mode
+	// live: F turned the frozen screen off; seenFreezes is the session F
+	// count already applied to it.
+	live        bool
+	seenFreezes uint32
 	wake        chan struct{}
 	outputs     []ports.Output
 	index       int // the output this overlay covers; every output has its own model
@@ -62,6 +66,7 @@ type model struct {
 	footerKind      core.PickKind
 	footerMode      ports.Mode
 	footerWorkspace bool
+	footerLive      bool
 	label           label
 
 	// Key feedback: a toast and a border pulse, advanced by animate. fx counts
@@ -75,7 +80,9 @@ type model struct {
 }
 
 func newModel(mode ports.Mode, outputs []ports.Output, index int, sess *session, grid bool) *model {
-	return &model{base: mode, mode: mode, footerMode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index), footerText: footerText(mode, core.PickRegion, false, false, false)}
+	m := &model{base: mode, mode: mode, footerMode: mode, outputs: outputs, index: index, sess: sess, grid: grid, header: headerText(outputs, index)}
+	m.footerText = footerText(mode, core.PickRegion, false, false, false, m.freezeHint())
+	return m
 }
 
 // otherMode is the mode a Tab switches to.
@@ -101,6 +108,27 @@ func (m *model) syncMode() {
 		m.showToast(modeToast(m.mode), modeHold, false)
 		m.pulseBorder()
 	}
+	if n := m.sess.freezes.Load(); n != m.seenFreezes {
+		m.seenFreezes, m.live = n, n%2 == 1
+		m.showToast(freezeToast(m.live), modeHold, false)
+		m.pulseBorder()
+	}
+}
+
+// frozen reports whether this overlay shows, and its screenshot captures, the
+// frozen screen.
+func (m *model) frozen() bool { return m.sess.canFreeze && !m.live }
+
+// freezeHint is the F state the footer shows: none without a frozen screen
+// or in record mode, which always captures the live screen.
+func (m *model) freezeHint() freezeState {
+	switch {
+	case !m.sess.canFreeze || m.mode == ports.Record:
+		return freezeOff
+	case m.live:
+		return freezeLive
+	}
+	return freezeOn
 }
 
 // resize is the OnResize callback. A logical size change (re)starts the
@@ -209,13 +237,14 @@ type visible struct {
 	dragging bool
 	kind     core.PickKind
 	grid     bool
+	live     bool
 	status   core.PickStatus
 	fx       uint32
 }
 
 func (m *model) snapshot() visible {
 	r, _ := m.picker.Rect()
-	return visible{r, m.mode == ports.Record, m.picker.Dragging(), m.picker.Kind(), m.grid, m.picker.Status(), m.fx}
+	return visible{r, m.mode == ports.Record, m.picker.Dragging(), m.picker.Kind(), m.grid, m.live, m.picker.Status(), m.fx}
 }
 
 // input is the OnInput callback. It reports whether the drawn state changed,
@@ -261,6 +290,11 @@ func (m *model) key(name string) {
 		m.selectTarget(core.PickRegion)
 	case "g", "G":
 		m.grid = !m.grid
+	case "f", "F":
+		if m.freezeHint() != freezeOff {
+			m.sess.toggleFreeze()
+			m.syncMode()
+		}
 	case "Tab":
 		if m.toggle {
 			m.sess.toggle()
@@ -272,7 +306,7 @@ func (m *model) key(name string) {
 		// A digit picks that whole monitor from any overlay, without reopening.
 		if i, ok := outputKey(name, len(m.outputs)); ok && !m.picker.Dragging() {
 			m.end = endAccepted
-			m.sess.accept(core.PickResult{OutputID: m.outputs[i].ID, Kind: core.PickMonitor}, m.mode)
+			m.sess.accept(core.PickResult{OutputID: m.outputs[i].ID, Kind: core.PickMonitor}, m.mode, m.frozen())
 		}
 	}
 }
@@ -337,13 +371,14 @@ func outputKey(name string, n int) (int, bool) {
 	return i, i < n
 }
 
-// refreshFooter rebuilds the footer only when the mode, target kind or workspace changes.
+// refreshFooter rebuilds the footer only when the mode, target kind,
+// workspace or frozen state changes.
 func (m *model) refreshFooter() {
 	kind := m.picker.Kind()
 	_, _, workspace := m.picker.Workspace()
-	if kind != m.footerKind || workspace != m.footerWorkspace || m.mode != m.footerMode {
-		m.footerKind, m.footerWorkspace, m.footerMode = kind, workspace, m.mode
-		m.footerText = footerText(m.mode, kind, workspace, m.toggle, m.noIndicator)
+	if kind != m.footerKind || workspace != m.footerWorkspace || m.mode != m.footerMode || m.live != m.footerLive {
+		m.footerKind, m.footerWorkspace, m.footerMode, m.footerLive = kind, workspace, m.mode, m.live
+		m.footerText = footerText(m.mode, kind, workspace, m.toggle, m.noIndicator, m.freezeHint())
 	}
 }
 
@@ -354,7 +389,7 @@ func (m *model) settle() {
 	case core.PickAccepted:
 		r, _ := m.picker.Result()
 		m.end = endAccepted
-		m.sess.accept(r, m.mode)
+		m.sess.accept(r, m.mode, m.frozen())
 		return
 	case core.PickCanceled:
 		m.end = endCanceled

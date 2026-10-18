@@ -323,8 +323,8 @@ func TestSelectRejectsBadInput(t *testing.T) {
 func TestSessionFirstDecisionWins(t *testing.T) {
 	sess, ctx := testSession()
 	first := core.PickResult{OutputID: 7, Kind: core.PickMonitor}
-	sess.accept(first, ports.Screenshot)
-	sess.accept(core.PickResult{OutputID: 9, Kind: core.PickMonitor}, ports.Record)
+	sess.accept(first, ports.Screenshot, false)
+	sess.accept(core.PickResult{OutputID: 9, Kind: core.PickMonitor}, ports.Record, false)
 	sess.abort()
 	assert.Error(t, ctx.Err())
 	res, ok, err := sess.outcome(context.Background())
@@ -365,7 +365,7 @@ func TestSessionRunEnded(t *testing.T) {
 	boom := errors.New("boom")
 
 	sess, _ := testSession()
-	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot, false)
 	sess.runEnded(context.Background(), "DP-1", context.Canceled) // our own cancel
 	_, ok, err := sess.outcome(context.Background())
 	assert.True(t, ok)
@@ -380,7 +380,7 @@ func TestSessionRunEnded(t *testing.T) {
 	// GO012: a real failure joined with Canceled survives whole, including the
 	// output name, after our own cancel.
 	sess, _ = testSession()
-	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot, false)
 	real := fmt.Errorf("surface close: %w", context.Canceled)
 	sess.runEnded(context.Background(), "DP-2", errors.Join(context.Canceled, real, boom))
 	_, ok, err = sess.outcome(context.Background())
@@ -396,7 +396,7 @@ func TestSessionRunEnded(t *testing.T) {
 	assert.ErrorContains(t, err, "output DP-1")
 
 	sess, _ = testSession()
-	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot)
+	sess.accept(core.PickResult{OutputID: 7}, ports.Screenshot, false)
 	sess.runEnded(context.Background(), "DP-1", boom) // a later overlay failing rejects the pick
 	_, ok, err = sess.outcome(context.Background())
 	assert.False(t, ok || err == nil)
@@ -669,11 +669,11 @@ func TestLabelContentHoldsMonospaceLine(t *testing.T) {
 }
 
 func TestFooterAndHeaderText(t *testing.T) {
-	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false, false, false), "shot · R region")
-	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, false), "rec · R region")
-	assert.NotContains(t, footerText(ports.Record, core.PickRegion, false, false, false), "No recording indicator")
-	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, true), "No recording indicator on this compositor")
-	assert.NotContains(t, footerText(ports.Screenshot, core.PickRegion, false, false, true), "No recording indicator", "only record mode needs the hint")
+	assert.Contains(t, footerText(ports.Screenshot, core.PickRegion, false, false, false, freezeOff), "shot · R region")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, false, freezeOff), "rec · R region")
+	assert.NotContains(t, footerText(ports.Record, core.PickRegion, false, false, false, freezeOff), "No recording indicator")
+	assert.Contains(t, footerText(ports.Record, core.PickRegion, false, false, true, freezeOff), "No recording indicator on this compositor")
+	assert.NotContains(t, footerText(ports.Screenshot, core.PickRegion, false, false, true, freezeOff), "No recording indicator", "only record mode needs the hint")
 	assert.Equal(t, "DP-1 · 1/2 · keys 1-2 pick monitor", headerText(testOutputs, 0))
 	assert.Equal(t, "DP-1", headerText(testOutputs[:1], 0))
 	i, ok := outputKey("2", 2)

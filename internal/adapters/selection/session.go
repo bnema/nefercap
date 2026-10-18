@@ -25,12 +25,17 @@ type session struct {
 	// after one. wakes is set before the overlays start and never changes.
 	toggles atomic.Uint32
 	wakes   []chan struct{}
+	// freezes counts F presses on any overlay: each flips the frozen screen
+	// on or off. canFreeze is set before the overlays start.
+	freezes   atomic.Uint32
+	canFreeze bool
 
 	mu       sync.Mutex
 	decided  bool
 	accepted bool
 	result   core.PickResult
 	mode     ports.Mode // the mode the confirming overlay showed
+	frozen   bool       // whether the confirming overlay showed the frozen screen
 	errs     []error
 }
 
@@ -39,11 +44,21 @@ func newSession(cancel context.CancelFunc) *session { return &session{cancel: ca
 // toggle flips the capture mode for every overlay and asks each to redraw.
 // After the first decision it does nothing, so a late Tab on another overlay
 // cannot change what was confirmed.
-func (s *session) toggle() {
+func (s *session) toggle() { s.flip(&s.toggles) }
+
+// toggleFreeze flips the frozen screen for every overlay, like toggle.
+func (s *session) toggleFreeze() {
+	if s.canFreeze {
+		s.flip(&s.freezes)
+	}
+}
+
+// flip counts one press before the first decision and wakes every overlay.
+func (s *session) flip(n *atomic.Uint32) {
 	s.mu.Lock()
 	decided := s.decided
 	if !decided {
-		s.toggles.Add(1)
+		n.Add(1)
 	}
 	s.mu.Unlock()
 	if decided {
@@ -57,12 +72,12 @@ func (s *session) toggle() {
 	}
 }
 
-// accept records the first decision, with the mode its overlay showed, and
-// ends every overlay.
-func (s *session) accept(r core.PickResult, mode ports.Mode) {
+// accept records the first decision, with the mode and frozen state its
+// overlay showed, and ends every overlay.
+func (s *session) accept(r core.PickResult, mode ports.Mode, frozen bool) {
 	s.mu.Lock()
 	if !s.decided {
-		s.decided, s.accepted, s.result, s.mode = true, true, r, mode
+		s.decided, s.accepted, s.result, s.mode, s.frozen = true, true, r, mode, frozen
 	}
 	s.mu.Unlock()
 	s.cancel()
@@ -123,4 +138,11 @@ func (s *session) acceptedMode() ports.Mode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.mode
+}
+
+// acceptedFrozen is the frozen state recorded by accept.
+func (s *session) acceptedFrozen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.frozen
 }

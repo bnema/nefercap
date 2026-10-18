@@ -29,9 +29,18 @@ const (
 // recording indicator out of the video, so none is drawn.
 const noIndicatorHint = "No recording indicator on this compositor · stop with the same shortcut or nefercap stop"
 
-// footerText is rebuilt only when the capture mode, picker kind or workspace
-// availability changes; pointer motion never formats hints.
-func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndicator bool) string {
+// freezeState is the F hint of the footer.
+type freezeState uint8
+
+const (
+	freezeOff  freezeState = iota // no frozen screen in this mode: F is hidden
+	freezeOn                      // the frozen screen is shown: F goes live
+	freezeLive                    // F turned it off: F freezes again
+)
+
+// footerText is rebuilt only when the capture mode, picker kind, workspace
+// availability or frozen state changes; pointer motion never formats hints.
+func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndicator bool, freeze freezeState) string {
 	action, name, other := "capture", "shot", "rec"
 	if mode == ports.Record {
 		action, name, other = "record", "rec", "shot"
@@ -47,7 +56,14 @@ func footerText(mode ports.Mode, kind core.PickKind, workspace, toggle, noIndica
 	if workspace {
 		b.WriteString(" · W workspace")
 	}
-	b.WriteString(" · G grid · Esc cancel\n")
+	b.WriteString(" · G grid")
+	switch freeze {
+	case freezeOn:
+		b.WriteString(" · F live")
+	case freezeLive:
+		b.WriteString(" · F freeze")
+	}
+	b.WriteString(" · Esc cancel\n")
 	switch kind {
 	case core.PickMonitor, core.PickWorkspace:
 		target := " monitor"

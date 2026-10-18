@@ -55,6 +55,7 @@ type Selector struct {
 	toggle      bool
 	noIndicator bool
 	backdrops   map[uint32]image.Image // frozen screens by output ID
+	frozen      bool                   // the accepted selection showed the frozen screen
 }
 
 var _ ports.Selector = (*Selector)(nil)
@@ -123,6 +124,11 @@ func backdropImage(f ports.Frame) *image.NRGBA {
 	return img
 }
 
+// Frozen reports whether the last accepted selection still showed the frozen
+// screen, so its screenshot must come from the frozen copy. It is false after
+// F switched to the live screen, and when there were no backdrops.
+func (s *Selector) Frozen() bool { return s.frozen }
+
 // AllowToggle lets Tab switch between screenshot and record selection. The
 // starting mode is New's; the target selection is kept across a switch.
 func (s *Selector) AllowToggle() *Selector {
@@ -163,7 +169,11 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sess := newSession(cancel)
-	var wg sync.WaitGroup
+	sess.canFreeze = len(s.backdrops) > 0
+	s.frozen = false
+	// Build every model and the complete wakes slice before any overlay
+	// starts: a running overlay reads sess.wakes on Tab or F.
+	models := make([]*model, len(outputs))
 	for i := range outputs {
 		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
@@ -174,9 +184,15 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 		m.wake, m.anim = make(chan struct{}, 1), newAnimator()
 		if s.toggle {
 			m.toggle = true
+		}
+		if s.toggle || sess.canFreeze {
 			sess.wakes = append(sess.wakes, m.wake)
 		}
-		m.footerText = footerText(m.mode, m.footerKind, m.footerWorkspace, m.toggle, m.noIndicator)
+		m.footerText = footerText(m.mode, m.footerKind, m.footerWorkspace, m.toggle, m.noIndicator, m.freezeHint())
+		models[i] = m
+	}
+	var wg sync.WaitGroup
+	for i, m := range models {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -195,6 +211,7 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	if err != nil || !ok {
 		return ports.Selection{}, false, err
 	}
+	s.frozen = sess.acceptedFrozen()
 	return s.selectionFor(sess.acceptedMode(), result), true, nil
 }
 
