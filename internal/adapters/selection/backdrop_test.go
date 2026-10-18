@@ -94,6 +94,37 @@ func TestFreezeKeyTogglesEveryOverlay(t *testing.T) {
 	assert.False(t, sess.acceptedFrozen(), "a pick on the live screen is captured live")
 }
 
+// The live state survives a round trip through record mode, where F is
+// ignored.
+func TestFreezeKeyWithTab(t *testing.T) {
+	sess, _ := testSession()
+	sess.canFreeze = true
+	m := frozenModel(t, 0, sess)
+	m.toggle = true
+	m.input(key("f"))
+	m.input(key("Tab"))
+	require.Equal(t, ports.Record, m.mode)
+	assert.False(t, m.input(key("f")), "F is ignored in record mode")
+	m.input(key("Tab"))
+	assert.False(t, drawsBackdrop(m), "still live after the round trip")
+	assert.Contains(t, m.footerText, "F freeze")
+}
+
+// Like Tab, F allocates only the rebuilt footer text.
+func TestFreezeKeyAllocations(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector adds allocations")
+	}
+	sess, _ := testSession()
+	sess.canFreeze = true
+	m := frozenModel(t, 0, sess)
+	n := testing.AllocsPerRun(100, func() {
+		m.input(key("f"))
+		_ = m.scene()
+	})
+	assert.LessOrEqual(t, n, 1.0, "an F press allocates only the rebuilt legend text")
+}
+
 // Without a frozen screen, or in record mode, F does nothing and is not shown.
 func TestFreezeKeyHiddenWithoutBackdrop(t *testing.T) {
 	m := newTestModel(t)

@@ -171,7 +171,9 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 	sess := newSession(cancel)
 	sess.canFreeze = len(s.backdrops) > 0
 	s.frozen = false
-	var wg sync.WaitGroup
+	// Build every model and the complete wakes slice before any overlay
+	// starts: a running overlay reads sess.wakes on Tab or F.
+	models := make([]*model, len(outputs))
 	for i := range outputs {
 		m := newModel(s.mode, outputs, i, sess, s.grid)
 		m.setWorkspaces(s.workspaces)
@@ -187,6 +189,10 @@ func (s *Selector) Select(ctx context.Context, outputs []ports.Output) (ports.Se
 			sess.wakes = append(sess.wakes, m.wake)
 		}
 		m.footerText = footerText(m.mode, m.footerKind, m.footerWorkspace, m.toggle, m.noIndicator, m.freezeHint())
+		models[i] = m
+	}
+	var wg sync.WaitGroup
+	for i, m := range models {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
