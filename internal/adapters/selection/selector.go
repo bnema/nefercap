@@ -87,13 +87,17 @@ func (s *Selector) WithCapabilities(c ports.Capabilities) *Selector {
 	return s
 }
 
-// maxBackdrop is the largest side NeferGUI accepts for one image.
-const maxBackdrop = 4096
+// These bounds mirror NeferGUI's image dimension and cache byte limits.
+const (
+	maxBackdrop      = 8192
+	maxBackdropBytes = 64 << 20
+)
 
-// CanBackdrop reports whether an output of this physical mode can show a
-// frozen frame. A larger output must stay live: freeze only the others.
+// CanBackdrop reports whether an output's physical mode fits NeferGUI's image
+// limits. Outputs exceeding either the side or byte limit stay live.
 func CanBackdrop(o ports.Output) bool {
-	return o.Width > 0 && o.Height > 0 && max(o.Width, o.Height) <= maxBackdrop
+	return o.Width > 0 && o.Height > 0 && max(o.Width, o.Height) <= maxBackdrop &&
+		o.Width <= maxBackdropBytes/ports.BytesPerPixel/o.Height
 }
 
 // WithBackdrops draws each output's frozen frame under its overlay instead of
@@ -103,8 +107,8 @@ func CanBackdrop(o ports.Output) bool {
 func (s *Selector) WithBackdrops(frames map[uint32]ports.Frame) (*Selector, error) {
 	s.backdrops = make(map[uint32]image.Image, len(frames))
 	for id, f := range frames {
-		if f.Width > maxBackdrop || f.Height > maxBackdrop {
-			return s, fmt.Errorf("selection: frozen frame of output %d is %dx%d, at most %d per side", id, f.Width, f.Height, maxBackdrop)
+		if !CanBackdrop(ports.Output{Width: f.Width, Height: f.Height}) {
+			return s, fmt.Errorf("selection: frozen frame of output %d is %dx%d, at most %d per side and %d bytes", id, f.Width, f.Height, maxBackdrop, maxBackdropBytes)
 		}
 		s.backdrops[id] = backdropImage(f)
 	}

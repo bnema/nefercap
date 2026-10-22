@@ -31,13 +31,22 @@ func TestWithBackdrops(t *testing.T) {
 
 	huge := ports.Frame{Width: maxBackdrop + 1, Height: 1, Stride: (maxBackdrop + 1) * 4, Format: ports.XRGB8888}
 	_, err = New(ports.Screenshot, ports.VideoSettings{}, nil, false).WithBackdrops(map[uint32]ports.Frame{9: huge})
-	assert.ErrorContains(t, err, "at most 4096", "the caller freezes only outputs CanBackdrop accepts")
+	assert.ErrorContains(t, err, "at most 8192", "the caller freezes only outputs CanBackdrop accepts")
+
+	huge = ports.Frame{Width: 7680, Height: 4320, Stride: 7680 * 4, Format: ports.XRGB8888}
+	_, err = New(ports.Screenshot, ports.VideoSettings{}, nil, false).WithBackdrops(map[uint32]ports.Frame{9: huge})
+	assert.ErrorContains(t, err, "67108864 bytes")
 }
 
 func TestCanBackdrop(t *testing.T) {
 	assert.True(t, CanBackdrop(ports.Output{Width: 3840, Height: 2160}))
 	assert.True(t, CanBackdrop(ports.Output{Width: 2160, Height: 4096}))
-	assert.False(t, CanBackdrop(ports.Output{Width: 5120, Height: 2880}))
+	assert.True(t, CanBackdrop(ports.Output{Width: 5120, Height: 2160}))
+	assert.True(t, CanBackdrop(ports.Output{Width: 8192, Height: 2048}), "exact byte budget")
+	assert.False(t, CanBackdrop(ports.Output{Width: 8192, Height: 2049}))
+	assert.False(t, CanBackdrop(ports.Output{Width: 7680, Height: 4320}))
+	assert.False(t, CanBackdrop(ports.Output{Width: 8193, Height: 1}))
+	assert.False(t, CanBackdrop(ports.Output{Width: 1, Height: 8193}))
 	assert.False(t, CanBackdrop(ports.Output{}), "an unknown mode stays live")
 }
 

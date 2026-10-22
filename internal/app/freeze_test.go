@@ -32,6 +32,6 @@ func TestFreezes(t *testing.T) {
 // Outputs too large for a backdrop are not frozen, so their screenshot is
 // live like their selector.
 func TestFrozenOutputs(t *testing.T) {
-	outputs := []ports.Output{{ID: 7, Width: 3840, Height: 2160}, {ID: 8, Width: 5120, Height: 2880}, {ID: 9, Width: 1080, Height: 1920}, {ID: 10}}
-	assert.Equal(t, []uint32{7, 9}, frozenOutputs(outputs))
+	outputs := []ports.Output{{ID: 7, Width: 3840, Height: 2160}, {ID: 8, Width: 5120, Height: 2160}, {ID: 9, Width: 1080, Height: 1920}, {ID: 10}, {ID: 11, Width: 7680, Height: 4320}}
+	assert.Equal(t, []uint32{7, 8, 9}, frozenOutputs(outputs))
 }
