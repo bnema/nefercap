@@ -133,7 +133,7 @@ paru -S nefercap-bin   # latest release, pre-built
 paru -S nefercap-git   # latest main, built from source
 ```
 
-Pre-built archives are on the [releases page](https://github.com/bnema/nefercap/releases). To build from a checkout:
+Pre-built archives are on the [releases page](https://git.bnema.dev/nefercap/releases). To build from a checkout:
 
 ```sh
 make bin    # builds bin/nefercap
