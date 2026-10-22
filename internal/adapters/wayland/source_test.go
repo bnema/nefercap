@@ -171,8 +171,11 @@ func TestFailedUnknownRepeatsLastFrame(t *testing.T) {
 	require.NoError(t, err, "recording continues")
 	require.NotEqual(t, want, fresh.Pixels, "with a new frame")
 
+	// Capture prefetched the next frame. Wait for the server to answer it
+	// before arming failures, so it cannot consume the first injected failure.
+	require.NoError(t, s.roundtrip())
 	srv.Fail(maxFrameAttempts, 0)
-	// The capture started after the previous frame was answered before Fail.
+	// Consume the successful prefetched frame before counting failures.
 	_, err = s.Capture(context.Background(), target)
 	require.NoError(t, err)
 	for range maxFrameAttempts - 1 {

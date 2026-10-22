@@ -259,6 +259,8 @@ func TestRefusedExclusionDoesNotPinStoppedSession(t *testing.T) {
 	target := ports.Target{OutputID: firstOutput(t, s).ID}
 	_, err := s.BeginExclusion(context.Background(), target)
 	require.ErrorIs(t, err, ErrExclusionUnavailable)
+	// BeginExclusion sends destroy but does not wait for the server to read it.
+	require.NoError(t, s.roundtrip())
 	require.Equal(t, 1, srv.Stats().DestroyedExclusions, "the failed exclusion object is destroyed")
 	srv.StopSessions()
 	_, err = s.Capture(context.Background(), target)
