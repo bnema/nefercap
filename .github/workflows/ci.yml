@@ -27,7 +27,7 @@ jobs:
       - run: >-
           pacman -Syu --noconfirm --needed
           git go make gcc wayland libxkbcommon ffmpeg
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           install -d -m 700 "$XDG_RUNTIME_DIR"
