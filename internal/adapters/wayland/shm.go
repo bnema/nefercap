@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	core "github.com/bnema/go-wayland-bindings/client/wayland"
-	"github.com/bnema/wlturbo"
+	core "bnema.dev/go-wayland-bindings/client/wayland"
+	"bnema.dev/wlturbo"
 	"golang.org/x/sys/unix"
 
 	"github.com/bnema/nefercap/internal/ports"

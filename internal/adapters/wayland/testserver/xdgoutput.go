@@ -1,9 +1,9 @@
 package testserver
 
 import (
-	"github.com/bnema/purego-libwayland/protocol/wayland"
-	"github.com/bnema/purego-libwayland/protocol/xdgoutput"
-	"github.com/bnema/purego-libwayland/server"
+	"bnema.dev/go-wayland-bindings/server/wayland"
+	"bnema.dev/go-wayland-bindings/server/xdgoutput"
+	"bnema.dev/purego-libwayland/server"
 )
 
 // xdg-output is offered only when an output announces a logical size.

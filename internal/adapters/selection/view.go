@@ -3,7 +3,7 @@ package selection
 import (
 	"time"
 
-	"github.com/bnema/nefergui"
+	"bnema.dev/nefergui"
 
 	"github.com/bnema/nefercap/internal/ports"
 )

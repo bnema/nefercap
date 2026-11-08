@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/nefergui"
-	"github.com/bnema/wlturbo"
+	"bnema.dev/neferclient"
+	"bnema.dev/nefergui"
+	"bnema.dev/wlturbo"
 )
 
 // guiMods is the set of modifiers NeferGUI knows. Both libraries use the same

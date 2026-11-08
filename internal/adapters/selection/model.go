@@ -6,7 +6,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/bnema/nefergui"
+	"bnema.dev/nefergui"
 
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/ports"

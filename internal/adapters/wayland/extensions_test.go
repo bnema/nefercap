@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/bnema/go-wayland-bindings/client/wayland"
-	"github.com/bnema/wlturbo"
+	core "bnema.dev/go-wayland-bindings/client/wayland"
+	"bnema.dev/wlturbo"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bnema/nefercap/internal/adapters/wayland/testserver"

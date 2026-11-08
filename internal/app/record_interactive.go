@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"bnema.dev/wlturbo"
 	"github.com/bnema/nefercap/internal/adapters/control"
 	"github.com/bnema/nefercap/internal/adapters/ffmpeg"
 	"github.com/bnema/nefercap/internal/adapters/indicator"
@@ -14,7 +15,6 @@ import (
 	"github.com/bnema/nefercap/internal/core"
 	"github.com/bnema/nefercap/internal/logging"
 	"github.com/bnema/nefercap/internal/ports"
-	"github.com/bnema/wlturbo"
 )
 
 // recordInteractive records and listens for stop requests. With the

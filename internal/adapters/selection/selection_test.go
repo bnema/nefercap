@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/nefergui"
+	"bnema.dev/neferclient"
+	"bnema.dev/nefergui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

@@ -14,11 +14,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bnema/purego-libwayland/protocol/extimagecapturesource"
-	"github.com/bnema/purego-libwayland/protocol/extimagecopycapture"
-	"github.com/bnema/purego-libwayland/protocol/extworkspace"
-	"github.com/bnema/purego-libwayland/protocol/wayland"
-	"github.com/bnema/purego-libwayland/server"
+	"bnema.dev/go-wayland-bindings/server/extimagecapturesource"
+	"bnema.dev/go-wayland-bindings/server/extimagecopycapture"
+	"bnema.dev/go-wayland-bindings/server/extworkspace"
+	"bnema.dev/go-wayland-bindings/server/wayland"
+	"bnema.dev/purego-libwayland/server"
 	"golang.org/x/sys/unix"
 
 	"github.com/bnema/nefercap/internal/adapters/wayland/testserver/neferwl"

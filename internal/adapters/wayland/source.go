@@ -18,11 +18,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	imagecapturesource "github.com/bnema/go-wayland-bindings/client/extimagecapturesource"
-	imagecopycapture "github.com/bnema/go-wayland-bindings/client/extimagecopycapture"
-	core "github.com/bnema/go-wayland-bindings/client/wayland"
-	"github.com/bnema/go-wayland-bindings/client/xdgoutput"
-	"github.com/bnema/wlturbo"
+	imagecapturesource "bnema.dev/go-wayland-bindings/client/extimagecapturesource"
+	imagecopycapture "bnema.dev/go-wayland-bindings/client/extimagecopycapture"
+	core "bnema.dev/go-wayland-bindings/client/wayland"
+	"bnema.dev/go-wayland-bindings/client/xdgoutput"
+	"bnema.dev/wlturbo"
 	"github.com/bnema/zerowrap"
 
 	"github.com/bnema/nefercap/internal/logging"

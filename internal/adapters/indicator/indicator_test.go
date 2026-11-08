@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/wlturbo"
+	"bnema.dev/neferclient"
+	"bnema.dev/wlturbo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

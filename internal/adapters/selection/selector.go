@@ -21,7 +21,7 @@ import (
 	"image"
 	"sync"
 
-	"github.com/bnema/neferclient"
+	"bnema.dev/neferclient"
 
 	"github.com/bnema/nefercap/internal/adapters/layerui"
 	"github.com/bnema/nefercap/internal/adapters/uistyle"

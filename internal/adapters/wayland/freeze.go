@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	extworkspace "github.com/bnema/go-wayland-bindings/client/extworkspace"
+	extworkspace "bnema.dev/go-wayland-bindings/client/extworkspace"
 
 	"github.com/bnema/nefercap/internal/ports"
 )

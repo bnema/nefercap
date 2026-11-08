@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bnema/neferclient"
+	"bnema.dev/neferclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

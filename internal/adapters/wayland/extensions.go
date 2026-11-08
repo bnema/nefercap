@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	imagecapturesource "github.com/bnema/go-wayland-bindings/client/extimagecapturesource"
-	"github.com/bnema/go-wayland-bindings/client/xdgoutput"
-	"github.com/bnema/wlturbo"
+	imagecapturesource "bnema.dev/go-wayland-bindings/client/extimagecapturesource"
+	"bnema.dev/go-wayland-bindings/client/xdgoutput"
+	"bnema.dev/wlturbo"
 
 	"github.com/bnema/nefercap/internal/ports"
 )

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bnema/wlturbo"
+	"bnema.dev/wlturbo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/nefergui"
+	"bnema.dev/neferclient"
+	"bnema.dev/nefergui"
 
 	"github.com/bnema/nefercap/internal/adapters/layerui"
 	"github.com/bnema/nefercap/internal/adapters/uierrors"

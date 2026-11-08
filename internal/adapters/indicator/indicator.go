@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/nefergui"
-	"github.com/bnema/wlturbo"
+	"bnema.dev/neferclient"
+	"bnema.dev/nefergui"
+	"bnema.dev/wlturbo"
 
 	"github.com/bnema/nefercap/internal/adapters/layerui"
 	"github.com/bnema/nefercap/internal/adapters/uierrors"

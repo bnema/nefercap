@@ -3,9 +3,9 @@ package testserver
 import (
 	"encoding/binary"
 
-	"github.com/bnema/purego-libwayland/protocol/extworkspace"
-	"github.com/bnema/purego-libwayland/protocol/wayland"
-	"github.com/bnema/purego-libwayland/server"
+	"bnema.dev/go-wayland-bindings/server/extworkspace"
+	"bnema.dev/go-wayland-bindings/server/wayland"
+	"bnema.dev/purego-libwayland/server"
 
 	"github.com/bnema/nefercap/internal/adapters/wayland/testserver/neferwl"
 )

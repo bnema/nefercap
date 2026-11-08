@@ -1,9 +1,9 @@
 package testserver
 
 import (
-	"github.com/bnema/purego-libwayland/protocol/extimagecapturesource"
-	"github.com/bnema/purego-libwayland/protocol/extimagecopycapture"
-	"github.com/bnema/purego-libwayland/protocol/wayland"
+	"bnema.dev/go-wayland-bindings/server/extimagecapturesource"
+	"bnema.dev/go-wayland-bindings/server/extimagecopycapture"
+	"bnema.dev/go-wayland-bindings/server/wayland"
 )
 
 // Pixel is the content the server paints: a function of the output pixel and

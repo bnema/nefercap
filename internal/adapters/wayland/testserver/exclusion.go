@@ -1,8 +1,8 @@
 package testserver
 
 import (
-	"github.com/bnema/purego-libwayland/protocol/extimagecopycapture"
-	"github.com/bnema/purego-libwayland/protocol/wayland"
+	"bnema.dev/go-wayland-bindings/server/extimagecopycapture"
+	"bnema.dev/go-wayland-bindings/server/wayland"
 
 	"github.com/bnema/nefercap/internal/adapters/wayland/testserver/neferwl"
 )

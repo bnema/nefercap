@@ -3,8 +3,8 @@ package layerui
 import (
 	"testing"
 
-	"github.com/bnema/neferclient"
-	"github.com/bnema/nefergui"
+	"bnema.dev/neferclient"
+	"bnema.dev/nefergui"
 	"github.com/stretchr/testify/assert"
 )
 

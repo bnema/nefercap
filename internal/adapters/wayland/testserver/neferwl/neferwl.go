@@ -2,12 +2,12 @@
 package neferwl
 
 import (
+	extimagecapturesource "bnema.dev/go-wayland-bindings/server/extimagecapturesource"
+	extimagecopycapture "bnema.dev/go-wayland-bindings/server/extimagecopycapture"
+	extworkspace "bnema.dev/go-wayland-bindings/server/extworkspace"
+	wayland "bnema.dev/go-wayland-bindings/server/wayland"
+	"bnema.dev/purego-libwayland/server"
 	"fmt"
-	extimagecapturesource "github.com/bnema/purego-libwayland/protocol/extimagecapturesource"
-	extimagecopycapture "github.com/bnema/purego-libwayland/protocol/extimagecopycapture"
-	extworkspace "github.com/bnema/purego-libwayland/protocol/extworkspace"
-	wayland "github.com/bnema/purego-libwayland/protocol/wayland"
-	"github.com/bnema/purego-libwayland/server"
 	"runtime"
 )
 

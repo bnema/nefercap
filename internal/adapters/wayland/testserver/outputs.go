@@ -1,9 +1,9 @@
 package testserver
 
 import (
-	"github.com/bnema/purego-libwayland/protocol/extimagecapturesource"
-	"github.com/bnema/purego-libwayland/protocol/wayland"
-	"github.com/bnema/purego-libwayland/server"
+	"bnema.dev/go-wayland-bindings/server/extimagecapturesource"
+	"bnema.dev/go-wayland-bindings/server/wayland"
+	"bnema.dev/purego-libwayland/server"
 	"golang.org/x/sys/unix"
 )
 
