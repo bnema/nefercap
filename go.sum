@@ -1,7 +1,7 @@
 bnema.dev/go-wayland-bindings v0.2.0 h1:I5NueVR/VD4N8r4k8sLu4ANNACFbs2eHwnM8JKCaAkE=
 bnema.dev/go-wayland-bindings v0.2.0/go.mod h1:asOWLoQgFHSorzsUrjZi20EA7FYnBOiquTNoOy98x3E=
-bnema.dev/neferclient v0.7.0 h1:HQ0K8RRXMp5TMuAWaO6NntoHeH8BWRdNtm5TkVCxXQI=
-bnema.dev/neferclient v0.7.0/go.mod h1:VyENKlILnLgyO1aTHFQJzm4+1QYB10OlQ6/o8uDuCdE=
+bnema.dev/neferclient v0.7.1 h1:EiDQ3zqizSSrIFUigV7WXXcsVLV72Y4Qi6pYl/T0Pjg=
+bnema.dev/neferclient v0.7.1/go.mod h1:VyENKlILnLgyO1aTHFQJzm4+1QYB10OlQ6/o8uDuCdE=
 bnema.dev/nefergui v0.12.1 h1:ef26O7EyjG8K71IHKaaq69YpHvD6kb6cskm+HSwBG64=
 bnema.dev/nefergui v0.12.1/go.mod h1:5zhnxokQhxbCXagwB2n6KJzsN/AMbHTJVIJMIsZHca8=
 bnema.dev/purego v0.13.0-bnema.4 h1:ZWmKISmlcJfN2xpYHbPBqCfesNNtRctIBCT6SfWQtkk=

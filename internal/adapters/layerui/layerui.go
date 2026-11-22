@@ -129,6 +129,11 @@ func (l *loop[T]) run() error {
 		if l.closed {
 			return nil
 		}
+		// A stored surface error (a failed renderer setup, say) is fatal even
+		// while Draw is held back by the hook gate.
+		if err := l.s.Err(); err != nil {
+			return err
+		}
 		if !l.authorized {
 			// Nothing is shown before OnSurface succeeds. The renderer exists
 			// once the layer is configured and its feedback is known.
