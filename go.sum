@@ -1,9 +1,9 @@
 bnema.dev/go-wayland-bindings v0.2.0 h1:I5NueVR/VD4N8r4k8sLu4ANNACFbs2eHwnM8JKCaAkE=
 bnema.dev/go-wayland-bindings v0.2.0/go.mod h1:asOWLoQgFHSorzsUrjZi20EA7FYnBOiquTNoOy98x3E=
-bnema.dev/neferclient v0.6.0 h1:gr6HmMVQwxKYloQfMI3Ph4BvBeIZ9bpGarPRY9ixqb8=
-bnema.dev/neferclient v0.6.0/go.mod h1:MtrScSydB0QseAW1f5zbbJtGPV0BRNs5HU0YzEW2XRo=
-bnema.dev/nefergui v0.11.0 h1:Mr/XoB74WlMtkHOv3A/f337CNDuHoZmm/A0m/OmYM0w=
-bnema.dev/nefergui v0.11.0/go.mod h1:5zhnxokQhxbCXagwB2n6KJzsN/AMbHTJVIJMIsZHca8=
+bnema.dev/neferclient v0.7.0 h1:HQ0K8RRXMp5TMuAWaO6NntoHeH8BWRdNtm5TkVCxXQI=
+bnema.dev/neferclient v0.7.0/go.mod h1:VyENKlILnLgyO1aTHFQJzm4+1QYB10OlQ6/o8uDuCdE=
+bnema.dev/nefergui v0.12.1 h1:ef26O7EyjG8K71IHKaaq69YpHvD6kb6cskm+HSwBG64=
+bnema.dev/nefergui v0.12.1/go.mod h1:5zhnxokQhxbCXagwB2n6KJzsN/AMbHTJVIJMIsZHca8=
 bnema.dev/purego v0.13.0-bnema.4 h1:ZWmKISmlcJfN2xpYHbPBqCfesNNtRctIBCT6SfWQtkk=
 bnema.dev/purego v0.13.0-bnema.4/go.mod h1:isZX4JISlvO21uwYXw3coKTo8RhwMpLpdro6jLIp++s=
 bnema.dev/purego-libwayland v0.14.0 h1:VJiYrF7tsruQt8b/KQdfFQ0MBjn4YmILf5IaZWUtzwM=
