@@ -2,6 +2,7 @@ package layerui
 
 import (
 	"testing"
+	"time"
 
 	"bnema.dev/neferclient"
 	"bnema.dev/nefergui"
@@ -22,7 +23,10 @@ func TestPointerInput(t *testing.T) {
 		{neferclient.PointerEvent{Kind: neferclient.PointerButton, X: 7, Y: 8, Button: 0x110},
 			nefergui.Input{Kind: nefergui.InputPointerRelease, X: 7, Y: 8, Button: 0x110}, true},
 		{neferclient.PointerEvent{Kind: neferclient.PointerAxis, DX: 1, DY: -2}, nefergui.Input{Kind: nefergui.InputPointerAxis, DX: 1, DY: -2}, true},
-		{neferclient.PointerEvent{Kind: neferclient.PointerAxisStop}, nefergui.Input{}, false},
+		{neferclient.PointerEvent{Kind: neferclient.PointerAxis, DY: 15, Value120Y: 120, Source: neferclient.AxisSourceWheel, Time: 40},
+			nefergui.Input{Kind: nefergui.InputPointerAxis, DY: 15, Value120Y: 120, Source: nefergui.AxisSourceWheel, Time: 40 * time.Millisecond}, true},
+		{neferclient.PointerEvent{Kind: neferclient.PointerAxis, Source: neferclient.AxisSourceFinger, StopX: true, StopY: true},
+			nefergui.Input{Kind: nefergui.InputPointerAxis, Source: nefergui.AxisSourceFinger, StopX: true, StopY: true}, true},
 	}
 	for _, c := range cases {
 		got, ok := pointerInput(&c.ev)

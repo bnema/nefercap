@@ -280,11 +280,32 @@ func pointerInput(ev *neferclient.PointerEvent) (in nefergui.Input, ok bool) {
 			in.Kind = nefergui.InputPointerPress
 		}
 	case neferclient.PointerAxis:
+		// One event per wl_pointer frame; a stop-only frame (zero deltas)
+		// is forwarded too: it ends a touchpad scroll into a fling.
 		in.Kind, in.DX, in.DY = nefergui.InputPointerAxis, ev.DX, ev.DY
+		in.Source = axisSource(ev.Source)
+		in.Value120X, in.Value120Y = ev.Value120X, ev.Value120Y
+		in.StopX, in.StopY = ev.StopX, ev.StopY
+		in.Time = time.Duration(ev.Time) * time.Millisecond
 	default:
 		return nefergui.Input{}, false
 	}
 	return in, true
+}
+
+// axisSource converts a neferclient axis source.
+func axisSource(s neferclient.AxisSource) nefergui.AxisSource {
+	switch s {
+	case neferclient.AxisSourceWheel:
+		return nefergui.AxisSourceWheel
+	case neferclient.AxisSourceFinger:
+		return nefergui.AxisSourceFinger
+	case neferclient.AxisSourceContinuous:
+		return nefergui.AxisSourceContinuous
+	case neferclient.AxisSourceWheelTilt:
+		return nefergui.AxisSourceWheelTilt
+	}
+	return nefergui.AxisSourceUnknown
 }
 
 // keyInput converts a neferclient key event. Text aliases neferclient storage
