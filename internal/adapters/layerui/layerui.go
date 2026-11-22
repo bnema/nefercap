@@ -2,7 +2,7 @@
 // the Wayland connection and surface, and neferclient/gui hosts the
 // nefergui.Renderer on it (input, present, cursor, input region, buffer
 // release and frame gating). Each Run has its own connection and runs
-// everything on the calling goroutine.
+// everything but OnSurface on the calling goroutine.
 package layerui
 
 import (
